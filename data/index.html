@@ -152,7 +152,7 @@ header{
 .type-leg-item{display:flex;align-items:center;gap:5px;color:var(--muted2)}
 .type-leg-dot{width:7px;height:7px;border-radius:50%}
 
-/* ── RTT Sparkline & Latency Histogram ────────────────────────────────── */
+/* ── RTT Sparkline & Latency Distribution ────────────────────────────────── */
 .spark-panel{
   background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
   padding:14px 18px;margin-bottom:20px;
@@ -284,7 +284,7 @@ tr:hover .row-actions{opacity:1}
 .chip-del:hover{color:var(--red)}
 .empty-list{color:var(--muted);font-size:.82rem;padding:8px 0}
 
-/* ── Clients table & Profile ──────────────────────────────────────────── */
+/* ── Clients table ────────────────────────────────────────────────────── */
 .clients-wrap{overflow-x:auto}
 .clients-wrap table tbody tr{cursor:pointer}
 .clients-wrap table tbody tr td:first-child{border-left:none;padding-left:14px}
@@ -884,10 +884,14 @@ let queries = [];
 let wlData = [], blData = [];
 let paused = false;
 let typeFilter = 'all';
-let lastStats = null;
 let clientNames = {};
 let pendingScrollCount = 0;
 let isUserScrolled = false;
+
+// Real-Time Stats & Local Uptime
+let localUptime = 0;
+let liveTotal = 0;
+let liveBlocked = 0;
 
 // QPS tracking
 let queryTimestamps = [];
@@ -984,8 +988,7 @@ window.addEventListener('keydown', (e) => {
 // ─── Mobile Navigation ───────────────────────────────────────────────────────
 function mobileNav(target) {
   document.querySelectorAll('.bnav-item').forEach(b => b.classList.remove('active'));
-  const btn = event.currentTarget;
-  if (btn) btn.classList.add('active');
+  if (event && event.currentTarget) event.currentTarget.classList.add('active');
 
   if (target === 'shield') {
     document.getElementById('sec-shield').scrollIntoView({ behavior: 'smooth' });
@@ -1027,7 +1030,7 @@ function fallbackCopy(text) {
 function fmtUptime(s){
   if(s<60)   return s+'s';
   if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s';
-  return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';
+  return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m '+(s%60)+'s';
 }
 function fmtBytes(b){
   if(b>1048576) return (b/1048576).toFixed(1)+' MB';
@@ -1040,7 +1043,7 @@ function fmtNum(n){
 }
 function timeAgo(ts){
   let d=Math.floor((Date.now()-ts)/1000);
-  if(d<5)  return 'now';
+  if(d<3)  return 'now';
   if(d<60) return d+'s ago';
   return Math.floor(d/60)+'m ago';
 }
@@ -1071,10 +1074,11 @@ function switchTab(name,btn){
 
 // ─── WebSocket ─────────────────────────────────────────────────────────────────
 function connectWS(){
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   ws=new WebSocket(`ws://${location.host}/ws`);
   ws.onopen=()=>{ document.getElementById('wsDot').className='ws-dot ok'; wsRetry=0; };
   ws.onclose=()=>{ document.getElementById('wsDot').className='ws-dot err';
-    setTimeout(connectWS,Math.min(1000*(++wsRetry),10000)); };
+    setTimeout(connectWS,Math.min(1000*(++wsRetry),8000)); };
   ws.onmessage=(e)=>{ try{ onQueryEvent(JSON.parse(e.data)); }catch(_){} };
 }
 
@@ -1104,7 +1108,16 @@ function onQueryEvent(q){
   queryTimestamps.push(now);
   saveQueryToDb(q);
 
-  if (q.b) playTone(440, 0.04);
+  // Instant local stats update (Zero-lag counter updates)
+  liveTotal++;
+  if (q.b) {
+    liveBlocked++;
+    playTone(440, 0.04);
+  }
+  document.getElementById('sTotal').textContent = fmtNum(liveTotal);
+  document.getElementById('sBlocked').textContent = fmtNum(liveBlocked);
+  const pct = liveTotal > 0 ? Math.round((liveBlocked / liveTotal) * 100) : 0;
+  document.getElementById('sPct').textContent = pct + '%';
 
   if(paused) return;
   queries.unshift(q);
@@ -1385,30 +1398,41 @@ async function runUpstreamBenchmark() {
   }
 }
 
-// ─── QPS Calculation Loop ─────────────────────────────────────────────────────
+// ─── Smooth 1-Second Uptime Ticker & QPS Calculation Loop ─────────────────────
 setInterval(() => {
+  // Smooth local uptime tick every second (no jumping!)
+  localUptime++;
+  document.getElementById('sUptime').textContent = fmtUptime(localUptime);
+
+  // QPS rate calculate
   const now = Date.now();
   queryTimestamps = queryTimestamps.filter(t => now - t <= 3000);
   const qps = (queryTimestamps.length / 3.0).toFixed(1);
   const qpsElem = document.getElementById('sQps');
   if (qpsElem) qpsElem.textContent = qps;
+
+  // Refresh relative timestamps (1s ago, 2s ago...) smoothly
+  if (queries.length && !isUserScrolled) {
+    document.querySelectorAll('.td-time').forEach((el, idx) => {
+      if (queries[idx]) el.textContent = timeAgo(queries[idx]._ts || Date.now());
+    });
+  }
 }, 1000);
 
-// Refresh time-ago column every 5 s
-setInterval(()=>{ if(queries.length && !isUserScrolled) renderFeed(false); },5000);
-
-// ─── Stats polling ─────────────────────────────────────────────────────────────
+// ─── Stats polling (Synchronized 1000ms heartbeat) ───────────────────────────
 async function pollStats(){
   try{
     const r=await fetch('/api/stats');
     if(!r.ok) return;
     const s=await r.json();
-    lastStats=s;
 
     document.getElementById('myIp').textContent=s.ip;
+    liveTotal = s.total;
+    liveBlocked = s.blocked;
     document.getElementById('sTotal').textContent=fmtNum(s.total);
     document.getElementById('sBlocked').textContent=fmtNum(s.blocked);
     document.getElementById('sPct').textContent=s.pct+'%';
+    localUptime = s.uptime;
     document.getElementById('sUptime').textContent=fmtUptime(s.uptime);
     document.getElementById('sHeap').textContent=fmtBytes(s.heap);
     document.getElementById('sCache').textContent=fmtNum(s.cacheHits);
@@ -1449,7 +1473,7 @@ async function pollStats(){
     }
   }catch(_){}
 }
-setInterval(pollStats,2500);
+setInterval(pollStats, 1000);
 pollStats();
 
 // ─── RTT Sparkline (pure SVG) ────────────────────────────────────────────────
@@ -1526,9 +1550,7 @@ async function setMode(m){
 loadMode();
 
 function startSnooze(mins) {
-  if (lastStats && lastStats.mode !== undefined) prevModeBeforeSnooze = lastStats.mode;
-  else prevModeBeforeSnooze = 2;
-
+  prevModeBeforeSnooze = 2;
   snoozeRemaining = mins * 60;
   setMode(0);
   updateSnoozeUI();
