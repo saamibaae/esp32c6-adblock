@@ -18,6 +18,7 @@ bool     fsReady     = false;
 #include "stats.h"        // g_stats
 #include "lru_cache.h"    // lruInit / lruLookup / lruInsert / lruInvalidate
 #include "lists.h"        // g_whitelist / g_blacklist / isWhitelisted / isCustomBlocked
+#include "settings.h"     // g_blockMode / settingsLoad / settingsSave
 #include "ota_updater.h"  // startBlocklistUpdate / getOtaStatus
 #include "web_ui.h"       // webUiSetup / webUiLoop / broadcastQuery
 
@@ -89,17 +90,24 @@ bool isHashBlocked(uint64_t targetHash)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  DNS lookup pipeline with full priority chain
-//  Bug #4 fix: LRU cache wraps every LittleFS search
-//  Bug #7 fix: pure char* — zero heap allocation in hot path
+//  DNS lookup pipeline with full priority chain and behavioral modes
 // ══════════════════════════════════════════════════════════════════════════════
 bool isDomainBlocked(const char *domain)
 {
     // 1. Whitelist — always forward, skip all block checks
     if (isWhitelisted(domain)) return false;
 
+    // Mode: ABSOLUTE (Hailmary) — block EVERYTHING not whitelisted
+    if (g_blockMode == BlockMode::ABSOLUTE) return true;
+
+    // Mode: BYPASS — block nothing
+    if (g_blockMode == BlockMode::BYPASS) return false;
+
     // 2. Custom blacklist — block immediately without touching flash
     if (isCustomBlocked(domain)) return true;
+
+    // Mode: MINIMAL — block ONLY custom blacklist (ignore blocklist.bin)
+    if (g_blockMode == BlockMode::MINIMAL) return false;
 
     // 3. LRU cache — avoids flash seeks for repeated domains
     uint64_t fullHash = fnv1a_40(domain, strlen(domain));
@@ -264,6 +272,7 @@ void setup()
                           totalHashes, blocklistFile.size() / 1024.0f);
         }
         listsLoad(); // whitelist + blacklist
+        settingsLoad(); // blocking mode
     }
 
     // ── Wi-Fi ────────────────────────────────────────────────────────────────

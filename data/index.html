@@ -75,6 +75,18 @@ td{padding:9px 16px;vertical-align:middle}
 .tab-pane{display:none;padding:20px}
 .tab-pane.active{display:block}
 
+/* Mode Selector */
+.mode-sel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.mode-title{font-size:.9rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
+.mode-opts{display:flex;background:var(--card);border-radius:8px;padding:4px;border:1px solid var(--border)}
+.mode-opt{background:transparent;border:none;color:var(--muted);padding:6px 14px;border-radius:6px;font-size:.8rem;font-weight:600;cursor:pointer;transition:.2s}
+.mode-opt:hover{color:var(--text)}
+.mode-opt.active{background:var(--accent);color:#0a0f1e}
+.mode-opt.active-0{background:var(--muted);color:#0a0f1e}
+.mode-opt.active-1{background:var(--green);color:#0a0f1e}
+.mode-opt.active-3{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
+.mode-desc{font-size:.8rem;color:var(--muted2);width:100%;margin-top:4px}
+
 /* List management */
 .add-form{display:flex;gap:8px;margin-bottom:16px}
 .add-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:.875rem;outline:none;font-family:'Courier New',monospace;transition:border-color .2s}
@@ -125,6 +137,18 @@ td{padding:9px 16px;vertical-align:middle}
 </header>
 
 <div class="container">
+
+  <!-- Mode Selector -->
+  <div class="mode-sel">
+    <div class="mode-title">🛡️ Shield Level</div>
+    <div class="mode-opts" id="modeOpts">
+      <button class="mode-opt" onclick="setMode(0)" data-m="0">Bypass</button>
+      <button class="mode-opt" onclick="setMode(1)" data-m="1">Minimal</button>
+      <button class="mode-opt active" onclick="setMode(2)" data-m="2">Normal</button>
+      <button class="mode-opt" onclick="setMode(3)" data-m="3">Absolute</button>
+    </div>
+    <div class="mode-desc" id="modeDesc">Loading mode…</div>
+  </div>
 
   <!-- Stats row -->
   <div class="stats-grid">
@@ -370,6 +394,37 @@ pollStats();
 })();
 
 // ─── List management ──────────────────────────────────────────────────────────
+const modeDescs = {
+  0: "Bypass: All DNS filtering is disabled.",
+  1: "Minimal: Only blocking domains in your custom Blacklist.",
+  2: "Normal: Standard blocklist + custom lists.",
+  3: "Absolute: Default Deny. Blocks EVERYTHING except your Whitelist."
+};
+async function loadMode(){
+  try{
+    const r=await fetch('/api/mode');
+    if(!r.ok) return;
+    const d=await r.json();
+    updateModeUI(d.mode);
+  }catch(_){}
+}
+function updateModeUI(m){
+  document.querySelectorAll('.mode-opt').forEach(b => {
+    b.className = 'mode-opt' + (b.dataset.m == m ? ' active active-'+m : '');
+  });
+  document.getElementById('modeDesc').textContent = modeDescs[m];
+}
+async function setMode(m){
+  updateModeUI(m);
+  try{
+    const r=await fetch('/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:m})});
+    const d=await r.json();
+    if(d.ok) toast('Shield Level updated',true);
+    else { toast('Failed',false); loadMode(); }
+  }catch(_){ toast('Network error',false); loadMode(); }
+}
+loadMode();
+
 async function loadLists(){
   try{
     const [wr,br]=await Promise.all([fetch('/api/whitelist'),fetch('/api/blacklist')]);

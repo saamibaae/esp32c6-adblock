@@ -16,6 +16,8 @@
 // REST API:
 //   GET  /api/stats        → JSON counters
 //   GET  /api/queries      → JSON last-30 query log
+//   GET  /api/mode         → {"mode":2}
+//   POST /api/mode         → {"mode":3} — update mode and invalidate cache
 //   GET  /api/whitelist    → JSON list
 //   POST /api/whitelist    → {"domain":"x"} — add
 //   DELETE /api/whitelist?domain=x — remove
@@ -155,6 +157,34 @@ void webUiSetup() {
         serializeJson(doc, json);
         _sendJson(req, 200, json);
     });
+
+    // ── GET /api/mode ─────────────────────────────────────────────────────────
+    webServer.on("/api/mode", HTTP_GET, [](AsyncWebServerRequest *req) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), R"({"mode":%d})", (int)g_blockMode);
+        _sendJson(req, 200, buf);
+    });
+
+    // ── POST /api/mode  {"mode":x} ────────────────────────────────────────────
+    webServer.on("/api/mode", HTTP_POST,
+        [](AsyncWebServerRequest *) {},
+        nullptr,
+        _bodyHandler([](AsyncWebServerRequest *req, const uint8_t *data, size_t len) {
+            JsonDocument doc;
+            if (deserializeJson(doc, data, len) || !doc["mode"].is<int>()) {
+                _sendJson(req, 400, R"({"ok":false,"msg":"Bad JSON"})");
+                return;
+            }
+            int newMode = doc["mode"].as<int>();
+            if (newMode >= 0 && newMode <= 3) {
+                settingsSave(static_cast<BlockMode>(newMode));
+                lruInvalidate(); // wipe cache since rules changed
+                _sendJson(req, 200, R"({"ok":true})");
+            } else {
+                _sendJson(req, 400, R"({"ok":false,"msg":"Invalid mode"})");
+            }
+        })
+    );
 
     // ── GET /api/whitelist ────────────────────────────────────────────────────
     webServer.on("/api/whitelist", HTTP_GET, [](AsyncWebServerRequest *req) {
