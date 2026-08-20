@@ -266,7 +266,7 @@ IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t d
 {
     // Mode: ABSOLUTE (Hailmary) — block EVERYTHING not whitelisted
     if (UNLIKELY(g_blockMode == BlockMode::ABSOLUTE)) {
-        return !isWhitelisted(domain, domLen);
+        return !isWhitelisted(domain, domLen, fullHash, labelOffsets, labelCount);
     }
 
     // Mode: BYPASS — block nothing
@@ -280,13 +280,13 @@ IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t d
     }
 
     // 1. Whitelist — always forward, skip all block checks
-    if (UNLIKELY(isWhitelisted(domain, domLen))) {
+    if (UNLIKELY(isWhitelisted(domain, domLen, fullHash, labelOffsets, labelCount))) {
         lruInsert(fullHash, false);
         return false;
     }
 
     // 2. Custom blacklist — block immediately without touching flash
-    if (UNLIKELY(isCustomBlocked(domain, domLen))) {
+    if (UNLIKELY(isCustomBlocked(domain, domLen, fullHash, labelOffsets, labelCount))) {
         lruInsert(fullHash, true);
         return true;
     }
@@ -458,6 +458,28 @@ IRAM_ATTR __attribute__((hot)) void sendCachedAnswerResponse(IPAddress clientIP,
     dnsServer.endPacket();
 }
 
+// ── Send cached NXDOMAIN directly from SRAM (< 0.1 ms latency) ────────────────
+IRAM_ATTR __attribute__((hot)) void sendNxdomainResponse(IPAddress clientIP, uint16_t clientPort,
+                                                         const uint8_t *query, size_t queryLen,
+                                                         size_t qnameEnd)
+{
+    static uint8_t resp[256];
+    *(uint16_t*)resp = *(const uint16_t*)query; // Transaction ID
+    resp[2]  = 0x81; resp[3]  = 0x83; // Flags: QR=1, RA=1, RCODE=3 (NXDOMAIN)
+    resp[4]  = 0x00; resp[5]  = 0x01; // QDCOUNT = 1
+    resp[6]  = 0x00; resp[7]  = 0x00; // ANCOUNT = 0
+    resp[8]  = 0x00; resp[9]  = 0x00; // NSCOUNT = 0
+    resp[10] = 0x00; resp[11] = 0x00; // ARCOUNT = 0
+
+    size_t questionLen = (qnameEnd + 4) - 12;
+    memcpy(&resp[12], &query[12], questionLen);
+    size_t idx = 12 + questionLen;
+
+    dnsServer.beginPacket(clientIP, clientPort);
+    dnsServer.write(resp, idx);
+    dnsServer.endPacket();
+}
+
 // ── SERVFAIL response — sent when a pending query times out ──────────────────
 void sendServfail(IPAddress clientIP, uint16_t clientPort, uint16_t txId)
 {
@@ -545,9 +567,9 @@ void setup()
                           totalHashes, blocklistFile.size() / 1024.0f);
             buildBloom(); // 32 KB filter with bulk read + 1024-bucket coarse index
         }
-        listsLoad();          // whitelist + blacklist
+        listsLoad();          // whitelist + blacklist with pre-hashed sorted arrays
         settingsLoad();       // blocking mode
-        initTrackerHashes();  // pre-hash tracker and essential sets for IRAM binary search
+        initTrackerHashes();  // compile-time pre-sorted tracker constants
 
         // Load upstream DNS override saved from the web dashboard
         File dnsFile = LittleFS.open("/dns.txt", "r");
@@ -677,11 +699,13 @@ void loop()
                 const uint32_t rttMs = now - pq.timestamp;
                 g_stats.recordRTT(rttMs);
 
-                // Extract IPv4 answer for Answer Cache if Type A query
-                if (pq.qtype == 0x0001 && n >= 16) {
+                // Handle Negative Caching (NXDOMAIN)
+                uint8_t rcode = s_upstreamRespBuf[3] & 0x0F;
+                if (rcode == 3) {
+                    insertAnswerCache(pq.domainHash, 0xFFFFFFFF, 60, now);
+                } else if (pq.qtype == 0x0001 && n >= 16 && rcode == 0) {
                     uint16_t ancount = ((uint16_t)s_upstreamRespBuf[6] << 8) | s_upstreamRespBuf[7];
                     if (ancount > 0 && n >= 32) {
-                        // Scan for first Type A answer (RDATA length 4)
                         for (int i = 12; i + 16 <= n; i++) {
                             if (s_upstreamRespBuf[i] == 0xC0 &&
                                 s_upstreamRespBuf[i + 2] == 0x00 && s_upstreamRespBuf[i + 3] == 0x01 && // TYPE A
@@ -755,8 +779,14 @@ void loop()
         } else {
             // Check In-RAM Answer Cache for Type A queries (< 0.1 ms SRAM answer)
             uint32_t cachedIp4 = 0, remTtl = 0;
-            if (qtype == 0x0001 && lookupAnswerCache(fullHash, now, cachedIp4, remTtl)) {
-                sendCachedAnswerResponse(clientIP, clientPort, s_dnsRxBuf, len, qnameEnd, cachedIp4, remTtl);
+            if (lookupAnswerCache(fullHash, now, cachedIp4, remTtl)) {
+                if (cachedIp4 == 0xFFFFFFFF) {
+                    sendNxdomainResponse(clientIP, clientPort, s_dnsRxBuf, len, qnameEnd);
+                } else if (qtype == 0x0001) {
+                    sendCachedAnswerResponse(clientIP, clientPort, s_dnsRxBuf, len, qnameEnd, cachedIp4, remTtl);
+                } else {
+                    forwardUpstream(clientIP, clientPort, s_dnsRxBuf, len, fullHash, qtype, now);
+                }
             } else {
                 forwardUpstream(clientIP, clientPort, s_dnsRxBuf, len, fullHash, qtype, now);
             }

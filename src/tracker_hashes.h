@@ -1,112 +1,95 @@
 #pragma once
 #include <Arduino.h>
-#include <algorithm>
-
-// Forward declaration of 40-bit FNV-1a hash function defined in main.cpp
-uint64_t fnv1a_40(const char *str, size_t len);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// tracker_hashes.h – Pre-hashed sorted arrays for instant binary search in IRAM
+// tracker_hashes.h – Pre-computed compile-time sorted arrays for instant binary search
+//
+// 100% zero boot-time overhead. Stored in Flash (PROGMEM), binary-searched in IRAM.
 // ─────────────────────────────────────────────────────────────────────────────
 
-static const char* const RAW_ESSENTIAL_DOMAINS[] = {
-    "google.com", "googleapis.com", "gstatic.com", "youtube.com", "googlevideo.com",
-    "gmail.com", "googleusercontent.com", "g.co", "ggpht.com",
-    "apple.com", "icloud.com", "mzstatic.com", "me.com", "mac.com", "apple-cloudkit.com"
+static const uint64_t g_essentialHashes[] PROGMEM = {
+    0x2C532D8712ULL, 0x4C41C2B8CFULL, 0x57F84E5E9AULL, 0x625949CCB2ULL,
+    0x6E9D2B2EADULL, 0x70CFD32A6AULL, 0x7AB32FFDE8ULL, 0x81D6F2AAD0ULL,
+    0x911CF634ADULL, 0xAE38DCDF45ULL, 0xC606D7E732ULL, 0xD4CDDA416FULL,
+    0xE919C61E0BULL, 0xF41D87857CULL, 0xFFD950D9B2ULL
 };
-static const size_t ESSENTIAL_COUNT = sizeof(RAW_ESSENTIAL_DOMAINS) / sizeof(RAW_ESSENTIAL_DOMAINS[0]);
+static const size_t ESSENTIAL_COUNT = sizeof(g_essentialHashes) / sizeof(g_essentialHashes[0]);
 
-static const char* const RAW_TRACKER_DOMAINS[] = {
-    // Apple Tracking
-    "metrics.apple.com", "securemetrics.apple.com", "iad.apple.com",
-    "iadsdk.apple.com", "api-adservices.apple.com", "metrics.icloud.com",
-    "metrics.mzstatic.com", "triadsdk.apple.com", "xp.apple.com",
-    // Google Tracking
-    "doubleclick.net", "google-analytics.com", "googleadservices.com",
-    "googlesyndication.com", "admob.com", "2mdn.net", "googletagservices.com",
-    "googletagmanager.com", "analytics.google.com", "click.googleanalytics.com",
-    "tagmanager.google.com", "dai.google.com", "adservice.google.com",
-    // Strict Tracker list
-    "amazon-adsystem.com", "a-mo.net", "fls-na.amazon.com", "device-metrics-us.amazon.com",
-    "device-metrics-us-2.amazon.com", "mads-eu.amazon.com", "connect.facebook.net",
-    "pixel.facebook.com", "graph.facebook.com", "an.facebook.com", "tr.facebook.com",
-    "graph.instagram.com", "i.instagram.com", "ads1.msn.com", "rad.msn.com", "bat.bing.com",
-    "bingads.microsoft.com", "ads.microsoft.com", "vortex.data.microsoft.com",
-    "telemetry.microsoft.com", "watson.telemetry.microsoft.com",
-    "browser.events.data.microsoft.com", "c.bing.com", "media.net", "adcolony.com",
-    "criteo.com", "criteo.net", "taboola.com", "outbrain.com", "mgid.com",
-    "propellerads.com", "onclickads.net", "applovin.com", "vungle.com", "liftoff.io",
-    "adnxs.com", "pubmatic.com", "openx.net", "rubiconproject.com", "spotxchange.com",
-    "indexexchange.com", "casalemedia.com", "htlbid.com", "unityads.unity3d.com",
-    "yandex.ru", "yandex.net", "supersonicads.com", "chartboost.com", "fyber.com",
-    "inmobi.com", "ironsource.mobi", "kargo.com", "adsrvr.org", "adroll.com",
-    "smartyads.com", "ad.gt", "contextweb.com", "sharethrough.com", "pangleglobal.com",
-    "stackadapt.com", "stickyadstv.com", "doubleverify.com", "3lift.com",
-    "adsafeprotected.com", "sonobi.com", "gumgum.com", "teads.tv",
-    "insightexpressai.com", "ads.yahoo.com", "analytics.yahoo.com", "geo.yahoo.com",
-    "udc.yahoo.com", "advertising.yahoo.com", "gemini.yahoo.com", "adtech.yahooinc.com",
-    "adobe.io", "omtrdc.net", "metrics.adobe.com", "clarity.ms", "hotjar.com",
-    "hotjar.io", "luckyorange.com", "luckyorange.net", "mouseflow.com",
-    "heapanalytics.com", "mixpanel.com", "amplitude.com", "segment.com", "segment.io",
-    "fullstory.com", "quantserve.com", "quantcast.com", "scorecardresearch.com",
-    "cloudflareinsights.com", "posthog.com", "rudderstack.com", "rudderlabs.com",
-    "snowplowanalytics.com", "fingerprintjs.com", "fpjs.io", "bluekai.com",
-    "onetag-sys.com", "pippio.com", "siftscience.com", "id5-sync.com", "mathtag.com",
-    "permutive.com", "crwdentrl.net", "bidswitch.net", "everesttech.net", "uidapi.com",
-    "rledn.com", "ricdn.com", "appsflyer.com", "adjust.com", "branch.io", "bnc.lt",
-    "kochava.com", "singular.net", "bugsnag.com", "sentry-cdn.com", "getsentry.com",
-    "sentry.io", "nr-data.net", "newrelic.com", "browser-intake-datadoghq.com",
-    "lr-ingest.com", "coinimp.com", "webminepool.com", "minero.cc", "mineralt.io",
-    "monerominer.rocks", "popads.net", "popcash.net", "popmyads.com", "clickadu.com",
-    "trafficjunky.net", "exoclick.com", "juicyads.com", "sc-static.net",
-    "tr.snapchat.com", "ads.snapchat.com", "sc-analytics.appspot.com",
-    "ads.linkedin.com", "pointdrive.linkedin.com", "snap.licdn.com", "ads-twitter.com",
-    "ads-api.twitter.com", "ads-api.x.com", "analytics.twitter.com", "analytics.x.com",
-    "ads.x.com", "events.reddit.com", "events.redditmedia.com",
-    "pixel.redditmedia.com", "d.reddit.com", "ads.pinterest.com", "ct.pinterest.com",
-    "log.pinterest.com", "analytics.pinterest.com", "trk.pinterest.com",
-    "widgets.pinterest.com", "ads-api.tiktok.com", "analytics.tiktok.com",
-    "ads-sg.tiktok.com", "business-api.tiktok.com", "ads.tiktok.com",
-    "byteoversea.com", "tiktokv.com", "pixel.quora.com", "gevents.quora.com",
-    "iot-logser.realme.com", "realmemobile.com", "oppomobile.com", "oneplus.cn",
-    "oneplus.net", "ad.xiaomi.com", "mistat.xiaomi.com", "hicloud.com", "miui.com",
-    "ads.huawei.com", "samsungads.com", "smetrics.samsung.com", "nmetrics.samsung.com",
-    "samsunghealth.com", "adlog.vivo.com", "ads-api.vivo.com", "a.lenovo.com",
-    "lgsmartad.com", "lgappstv.com", "lge.com", "yumenetworks.com", "smartclip.net",
-    "smartclip.com", "logs.roku.com", "ads.roku.com", "amoeba.web.roku.com",
-    "ads.vizio.com", "tvinteractive.tv", "tvpixel.com", "cookielaw.org", "onetrust.com",
-    "cookiebot.com", "trustarc.com", "privacy-center.org", "privacy-mgmt.com",
-    "usercentrics.eu", "cmp.inmobi.com", "cmp.osano.com", "anrdoezrs.net",
-    "partnerstack.com", "dpbolvw.net", "tkglhce.com", "refersion.com", "shareasale.com",
-    "pepperjamnetwork.com", "linksynergy.com", "skimresources.com",
-    "impactradius-event.com", "redirectingat.com", "awin1.com", "zenaps.com",
-    "prf.hn", "viglink.com", "optimizely.com", "dynamicyield.com", "launchdarkly.com",
-    "list-manage.com", "hubspot.com", "marketo.net", "mailchimp.com", "intercom.io",
-    "driftt.com", "braze.com", "onesignal.com", "klaviyo.com", "customer.io",
-    "jwpsrv.com", "jwpedn.com", "jwpltx.com", "fwmrm.net", "brightcove.com",
-    "innovid.com", "connatix.com", "tremorhub.com"
+static const uint64_t g_strictTrackerHashes[] PROGMEM = {
+    0x0052B6AB99ULL, 0x032F0D43FFULL, 0x06FC8FB3F0ULL, 0x0A535EB694ULL,
+    0x0A6EDD7B76ULL, 0x0CDB947A6DULL, 0x112313F7DFULL, 0x1263C0F011ULL,
+    0x141977C8FBULL, 0x1506E4877EULL, 0x1625A02760ULL, 0x16F80841EFULL,
+    0x17AFD1EC0CULL, 0x18EDE07B88ULL, 0x194E5C7A78ULL, 0x19B59C0A46ULL,
+    0x1C06503B74ULL, 0x1C4CEF6A35ULL, 0x1CD439950BULL, 0x1D0B7487EFULL,
+    0x1E3BEF5631ULL, 0x1E574D9A4CULL, 0x206701D3FEULL, 0x21E996BBB2ULL,
+    0x225869CDA2ULL, 0x22EBA81B54ULL, 0x2302E50024ULL, 0x2363AF670DULL,
+    0x237E6FF889ULL, 0x24334E860EULL, 0x250117B80BULL, 0x255ED7C9C5ULL,
+    0x26FEA71F54ULL, 0x275768D26FULL, 0x27AFC0CCB5ULL, 0x281E15A568ULL,
+    0x28F9D6CE5AULL, 0x2948FFB22FULL, 0x29D70F7050ULL, 0x2A0D0C1A31ULL,
+    0x2BEA2E0A98ULL, 0x2C66429F2AULL, 0x307B924A71ULL, 0x3146F929B3ULL,
+    0x318FC394A3ULL, 0x34A80067D0ULL, 0x35A5BFD70CULL, 0x35DD464203ULL,
+    0x365703C3B3ULL, 0x36770AD98AULL, 0x37D32DA531ULL, 0x38EB2F67F5ULL,
+    0x391C71C39FULL, 0x3BD4F3CCD4ULL, 0x3E529E81E0ULL, 0x3EA1DCDDF6ULL,
+    0x3F7CC05E91ULL, 0x40DB32DD98ULL, 0x40E2ED138BULL, 0x4272AA6C53ULL,
+    0x42ED424706ULL, 0x434F78F6A1ULL, 0x453F2B40E0ULL, 0x455605E0BAULL,
+    0x45E4A81CD2ULL, 0x45EDF43212ULL, 0x4624591CB4ULL, 0x4720A92180ULL,
+    0x47709BDD46ULL, 0x47C922D2ACULL, 0x48C4E49D78ULL, 0x49FA05ACD6ULL,
+    0x4A653ED245ULL, 0x4BD113322CULL, 0x5324476617ULL, 0x541EECC7D9ULL,
+    0x54A2C2FD74ULL, 0x5514D670F0ULL, 0x5616C8F1D3ULL, 0x5641BE2F88ULL,
+    0x5763EF8260ULL, 0x589825A4C5ULL, 0x5906893B49ULL, 0x5A1C3E021AULL,
+    0x5B0098C413ULL, 0x5BE7C2DF9EULL, 0x5D0801B2C2ULL, 0x5EEACCAD40ULL,
+    0x5F247C0E8FULL, 0x5F8732B580ULL, 0x5F9F47B2F5ULL, 0x6001A28D70ULL,
+    0x60045127CDULL, 0x6144C1CC2DULL, 0x635EC71F58ULL, 0x646574F5C0ULL,
+    0x64A4F57E12ULL, 0x64B84EB464ULL, 0x650AA2019BULL, 0x6524C04D16ULL,
+    0x660C655FD3ULL, 0x661AEA202FULL, 0x6639005FC5ULL, 0x66B3B81150ULL,
+    0x66ED0B59CFULL, 0x67C584D72BULL, 0x687654524BULL, 0x6A368F2E83ULL,
+    0x6C18A83BA6ULL, 0x6C5795DBECULL, 0x6C6C6C8E40ULL, 0x6CA3A469A5ULL,
+    0x6E03E1917FULL, 0x70FB909F21ULL, 0x71212705DAULL, 0x72922229BBULL,
+    0x73AF9CA8A6ULL, 0x743ABD4201ULL, 0x743C812D9CULL, 0x762EF0BC88ULL,
+    0x76308DA596ULL, 0x767A0284C4ULL, 0x770B59DDE6ULL, 0x774BF5F32EULL,
+    0x776CB6F5AAULL, 0x77DBC70E07ULL, 0x78F704BB26ULL, 0x79F9C1149CULL,
+    0x7AB39B5A49ULL, 0x7CD66E826CULL, 0x7D1E004781ULL, 0x7D5D03C5CFULL,
+    0x7DAA1557EDULL, 0x7FF7A0CCCAULL, 0x80294D3820ULL, 0x803BD8D91EULL,
+    0x81D69D908BULL, 0x83A0370A57ULL, 0x8405013D60ULL, 0x8439702016ULL,
+    0x8449FD092CULL, 0x84A511094DULL, 0x871E5FAB05ULL, 0x874B37E6D9ULL,
+    0x8A4410B74FULL, 0x8AC9F2F622ULL, 0x8C11BE0E4EULL, 0x8C8C82A044ULL,
+    0x8D18520962ULL, 0x8D6EB419A5ULL, 0x902F0213CBULL, 0x9106E2D451ULL,
+    0x933FE1F858ULL, 0x93718456EDULL, 0x944652F591ULL, 0x95E71D5F4CULL,
+    0x95F7D8C407ULL, 0x963072A870ULL, 0x9773F19E26ULL, 0x984DF4203EULL,
+    0x98AAB978CDULL, 0x9998DA7263ULL, 0x9A62DE81C7ULL, 0x9A860C2FF0ULL,
+    0x9ACC8A1864ULL, 0x9B10D9E559ULL, 0x9C0CDA433BULL, 0x9CD4E2CA56ULL,
+    0x9D654A0171ULL, 0x9E0E705C57ULL, 0x9E24228DFBULL, 0x9F6A5713EFULL,
+    0xA000FB98CDULL, 0xA002FC7C92ULL, 0xA02569397CULL, 0xA457915B9BULL,
+    0xA5B69EFB02ULL, 0xA69CAC1B42ULL, 0xA77DD54603ULL, 0xA78C084507ULL,
+    0xA95154B4CEULL, 0xA9612A1F0EULL, 0xAA39EA8104ULL, 0xAC55412529ULL,
+    0xAC5EA837B0ULL, 0xAC76467F2AULL, 0xAEA60BF689ULL, 0xAF961BF8D3ULL,
+    0xB012E407B7ULL, 0xB06351A5C2ULL, 0xB1EFD4B7C3ULL, 0xB28506F77CULL,
+    0xB30683C1C4ULL, 0xB30BBDDC72ULL, 0xB430971A67ULL, 0xB82C9C22B1ULL,
+    0xB94BB8F2E4ULL, 0xBA0AE69701ULL, 0xBB271D9974ULL, 0xBE2EF37842ULL,
+    0xBFAC1BFF18ULL, 0xC2224EE092ULL, 0xC2858F0CF0ULL, 0xC2CCCEE945ULL,
+    0xC33AC4EE0EULL, 0xC6D757BC88ULL, 0xC75D634546ULL, 0xC81ABB4914ULL,
+    0xC83E0A62D9ULL, 0xC9227F8705ULL, 0xC9899FC39EULL, 0xCA1B5D32AEULL,
+    0xCBCD9B983CULL, 0xCC09BFA832ULL, 0xCD127775CDULL, 0xCD18789ED6ULL,
+    0xCD82EBCD41ULL, 0xCD9F463565ULL, 0xCE781FFE57ULL, 0xCFB596386EULL,
+    0xD03EF94D31ULL, 0xD09D661988ULL, 0xD26A7EFFFAULL, 0xD2DBAD2F27ULL,
+    0xD34C2BD26FULL, 0xD4ABA8D1DCULL, 0xD8712F296DULL, 0xD9E1A37414ULL,
+    0xDAD9798ED8ULL, 0xDCE85BBB45ULL, 0xDD23FD9DB9ULL, 0xDE0716CC14ULL,
+    0xDEAAACD931ULL, 0xDED030F670ULL, 0xDF0A695612ULL, 0xE0330443EAULL,
+    0xE099DD2E17ULL, 0xE373E45EC3ULL, 0xE5A77F9592ULL, 0xE5CE1B756CULL,
+    0xE7EFCE6571ULL, 0xE88ED1A9E1ULL, 0xE956666BFCULL, 0xEA81F01509ULL,
+    0xEA88BC5C85ULL, 0xEAA25E3C83ULL, 0xEE24BE377CULL, 0xEE25D54DEBULL,
+    0xEFC9572AC8ULL, 0xF0675DD1A9ULL, 0xF18A39B635ULL, 0xF2167BFF62ULL,
+    0xF38B90B4DDULL, 0xF506B3F868ULL, 0xF55DEBA53EULL, 0xF5CE576F7EULL,
+    0xF66310AACAULL, 0xFB69D2580EULL, 0xFBD7FFD0D3ULL, 0xFCA53C71B1ULL,
+    0xFD11F7E479ULL, 0xFD4A8DF9D6ULL, 0xFDF9633003ULL, 0xFDFE4C1BBBULL,
+    0xFE276AC8DFULL, 0xFEBEAD3C59ULL, 0xFF5D9B1A9DULL
 };
-static const size_t TRACKER_COUNT = sizeof(RAW_TRACKER_DOMAINS) / sizeof(RAW_TRACKER_DOMAINS[0]);
-
-static uint64_t g_essentialHashes[ESSENTIAL_COUNT];
-static uint64_t g_strictTrackerHashes[TRACKER_COUNT];
+static const size_t TRACKER_COUNT = sizeof(g_strictTrackerHashes) / sizeof(g_strictTrackerHashes[0]);
 
 static inline void initTrackerHashes() {
-    for (size_t i = 0; i < ESSENTIAL_COUNT; i++) {
-        g_essentialHashes[i] = fnv1a_40(RAW_ESSENTIAL_DOMAINS[i], strlen(RAW_ESSENTIAL_DOMAINS[i]));
-    }
-    std::sort(g_essentialHashes, g_essentialHashes + ESSENTIAL_COUNT);
-
-    for (size_t i = 0; i < TRACKER_COUNT; i++) {
-        g_strictTrackerHashes[i] = fnv1a_40(RAW_TRACKER_DOMAINS[i], strlen(RAW_TRACKER_DOMAINS[i]));
-    }
-    std::sort(g_strictTrackerHashes, g_strictTrackerHashes + TRACKER_COUNT);
-
-    Serial.printf("[TRACKER] Pre-hashed %u essential & %u strict tracker domains\n",
-                  (unsigned int)ESSENTIAL_COUNT, (unsigned int)TRACKER_COUNT);
+    // Compile-time pre-sorted: zero boot runtime overhead
 }
 
-// O(log N) binary search in sorted uint64_t array (IRAM pinned)
 // O(log N) binary search in sorted uint64_t array (IRAM pinned)
 IRAM_ATTR static inline __attribute__((always_inline)) bool isHashInSet(const uint64_t *arr, size_t size, uint64_t target) {
     int32_t low = 0, high = (int32_t)size - 1;
