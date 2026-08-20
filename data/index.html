@@ -84,7 +84,8 @@ td{padding:9px 16px;vertical-align:middle}
 .mode-opt.active{background:var(--accent);color:#0a0f1e}
 .mode-opt.active-0{background:var(--muted);color:#0a0f1e}
 .mode-opt.active-1{background:var(--green);color:#0a0f1e}
-.mode-opt.active-3{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
+.mode-opt.active-3{background:#fb923c;color:#0a0f1e}
+.mode-opt.active-4{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
 .mode-desc{font-size:.8rem;color:var(--muted2);width:100%;margin-top:4px}
 
 /* List management */
@@ -145,7 +146,8 @@ td{padding:9px 16px;vertical-align:middle}
       <button class="mode-opt" onclick="setMode(0)" data-m="0">Bypass</button>
       <button class="mode-opt" onclick="setMode(1)" data-m="1">Minimal</button>
       <button class="mode-opt active" onclick="setMode(2)" data-m="2">Normal</button>
-      <button class="mode-opt" onclick="setMode(3)" data-m="3">Absolute</button>
+      <button class="mode-opt" onclick="setMode(3)" data-m="3">Strict</button>
+      <button class="mode-opt" onclick="setMode(4)" data-m="4">Absolute</button>
     </div>
     <div class="mode-desc" id="modeDesc">Loading mode…</div>
   </div>
@@ -398,7 +400,8 @@ const modeDescs = {
   0: "Bypass: All DNS filtering is disabled.",
   1: "Minimal: Only blocking domains in your custom Blacklist.",
   2: "Normal: Standard blocklist + custom lists.",
-  3: "Absolute: Default Deny. Blocks EVERYTHING except your Whitelist."
+  3: "Strict: Normal + Big Tech (Google, Apple, Microsoft, Amazon, etc).",
+  4: "Absolute: Default Deny. Blocks EVERYTHING except your Whitelist."
 };
 async function loadMode(){
   try{

@@ -10,7 +10,8 @@ enum class BlockMode {
     BYPASS   = 0, // Block nothing
     MINIMAL  = 1, // Block ONLY custom blacklist
     NORMAL   = 2, // Block custom blacklist + blocklist.bin
-    ABSOLUTE = 3  // Block EVERYTHING except custom whitelist
+    STRICT   = 3, // Block above + Big Tech (Google, Apple, Microsoft, Amazon, etc)
+    ABSOLUTE = 4  // Block EVERYTHING except custom whitelist
 };
 
 BlockMode g_blockMode = BlockMode::NORMAL;
@@ -20,7 +21,7 @@ void settingsLoad() {
     if (f) {
         String val = f.readStringUntil('\n');
         int modeInt = val.toInt();
-        if (modeInt >= 0 && modeInt <= 3) {
+        if (modeInt >= 0 && modeInt <= 4) {
             g_blockMode = static_cast<BlockMode>(modeInt);
         }
         f.close();

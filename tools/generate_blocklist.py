@@ -28,10 +28,8 @@ except ImportError:
 
 # ── Blocklist sources ────────────────────────────────────────────────────────
 SOURCES = [
-    # StevenBlack unified hosts (ads + malware)
-    "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts",
-    # AdAway default blocklist
-    "https://adaway.org/hosts.txt",
+    # StevenBlack (Ads + Malware + Fakenews + Gambling + Porn + Social)
+    "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn-social/hosts"
 ]
 
 EXTRA_SOURCES = [

@@ -92,6 +92,35 @@ bool isHashBlocked(uint64_t targetHash)
 // ══════════════════════════════════════════════════════════════════════════════
 //  DNS lookup pipeline with full priority chain and behavioral modes
 // ══════════════════════════════════════════════════════════════════════════════
+
+bool endsWith(const char* str, const char* suffix) {
+    size_t strLen = strlen(str);
+    size_t suffixLen = strlen(suffix);
+    if (strLen < suffixLen) return false;
+    return (strcasecmp(str + strLen - suffixLen, suffix) == 0) &&
+           (strLen == suffixLen || str[strLen - suffixLen - 1] == '.');
+}
+
+bool isBigTech(const char* domain) {
+    const char* targets[] = {
+        // Google Ads & Analytics
+        "doubleclick.net", "googleadservices.com", "googlesyndication.com",
+        "google-analytics.com", "admob.com", "2mdn.net",
+        // Apple Ads & Metrics
+        "iad.apple.com", "metrics.apple.com", "securemetrics.apple.com",
+        // Microsoft / Bing Ads
+        "ads1.msn.com", "rad.msn.com", "bat.bing.com", "bingads.microsoft.com",
+        // Amazon Ads & Telemetry
+        "amazon-adsystem.com", "a-mo.net", "fls-na.amazon.com",
+        // Meta / Facebook Tracking
+        "connect.facebook.net", "pixel.facebook.com", "graph.facebook.com"
+    };
+    for (const char* t : targets) {
+        if (endsWith(domain, t)) return true;
+    }
+    return false;
+}
+
 bool isDomainBlocked(const char *domain)
 {
     // 1. Whitelist — always forward, skip all block checks
@@ -108,6 +137,9 @@ bool isDomainBlocked(const char *domain)
 
     // Mode: MINIMAL — block ONLY custom blacklist (ignore blocklist.bin)
     if (g_blockMode == BlockMode::MINIMAL) return false;
+
+    // Mode: STRICT — block Big Tech before falling through to standard blocklist
+    if (g_blockMode == BlockMode::STRICT && isBigTech(domain)) return true;
 
     // 3. LRU cache — avoids flash seeks for repeated domains
     uint64_t fullHash = fnv1a_40(domain, strlen(domain));

@@ -10,6 +10,8 @@
 
 Block ads, trackers, and malware domains **for every device on your network** — with no cloud dependency, no subscription, and hardware that costs less than a cup of coffee.
 
+> **Note:** This project was built by **Ismam Shahin Sami** using **Google Antigravity**.
+
 ---
 
 ## ✨ Features
@@ -17,6 +19,7 @@ Block ads, trackers, and malware domains **for every device on your network** �
 - 🔒 **95,000+ blocked domains** — StevenBlack + AdAway lists compiled into a 467 KB binary
 - ⚡ **Sub-millisecond lookups** — 40-bit FNV-1a binary search directly in flash
 - 🧠 **64-entry LRU cache** — eliminates repeated flash seeks for hot domains
+- 🛡️ **5 Shield Levels** — on-the-fly toggling from Bypass to Strict (Anti-Big Tech) to Absolute (Hailmary).
 - 🌐 **Live web dashboard** — real-time query feed, stats, and list management at `http://192.168.x.x`
 - 📡 **WebSocket push** — every DNS query appears on the dashboard instantly
 - ✅ **Custom whitelist / blacklist** — add/remove domains via the web UI, persisted to flash
@@ -108,6 +111,12 @@ Reconnect your devices — done. Every DNS query on your network now goes throug
 Open **`http://192.168.0.247`** in any browser on your network.
 
 **Dashboard features:**
+- 🛡️ **Shield Level Selector** — Change protection intensity on the fly:
+  - **Bypass:** DNS filtering disabled.
+  - **Minimal:** Only blocks your custom Blacklist.
+  - **Normal:** Standard 182k+ blocklist + custom lists.
+  - **Strict:** Normal + blocks Big Tech tracking (Google, Meta, Apple, Microsoft, Amazon).
+  - **Absolute (Hailmary):** Default-Deny. Blocks *everything* except your Custom Whitelist.
 - 📊 Live stats — total queries, blocked count, block %, uptime, free heap, cache hits
 - ⚡ Real-time query feed — domain, query type, blocked/allowed status (pushed via WebSocket)
 - ✅ Whitelist management — add/remove domains that should never be blocked
@@ -256,5 +265,6 @@ MIT — see [LICENSE](LICENSE). Use it, fork it, ship it.
 ---
 
 <p align="center">
-  Built with ❤️ on a $6 microcontroller · Blocks ads so you don't have to
+  Built with ❤️ by <b>Ismam Shahin Sami</b> using <b>Google Antigravity</b>.<br>
+  Blocks ads so you don't have to.
 </p>

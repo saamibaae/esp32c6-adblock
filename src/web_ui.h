@@ -176,7 +176,7 @@ void webUiSetup() {
                 return;
             }
             int newMode = doc["mode"].as<int>();
-            if (newMode >= 0 && newMode <= 3) {
+            if (newMode >= 0 && newMode <= 4) {
                 settingsSave(static_cast<BlockMode>(newMode));
                 lruInvalidate(); // wipe cache since rules changed
                 _sendJson(req, 200, R"({"ok":true})");
