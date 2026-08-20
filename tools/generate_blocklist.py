@@ -29,7 +29,7 @@ except ImportError:
 # ── Blocklist sources ────────────────────────────────────────────────────────
 SOURCES = [
     # StevenBlack (Ads + Malware + Fakenews + Gambling + Porn + Social)
-    "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/fakenews-gambling-porn-social/hosts"
+    "https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts"
 ]
 
 EXTRA_SOURCES = [
