@@ -145,7 +145,7 @@ void broadcastStats() {
         R"({"type":"stats","total":%lu,"blocked":%lu,"pct":%lu,"uptime":%lu,"heap":%lu,)"
         R"("ip":"%s","hashes":%lu,"cacheHits":%lu,"ssid":"%s","rssi":%d,)"
         R"("rssiTag":"%s","minRtt":%lu,"avgRtt":%lu,"maxRtt":%lu,)"
-        R"("rttHist":%s,"upstream":"%s","usingFallback":%s,"pending":%d})",
+        R"("rttHist":%s,"upstream":"%s","usingFallback":%s,"pending":%d,"avgProc":%lu})",
         (unsigned long)g_stats.totalQueries,
         (unsigned long)g_stats.blockedQueries,
         (unsigned long)g_stats.blockedPct(),
@@ -163,7 +163,8 @@ void broadcastStats() {
         rttHistBuf,
         currentUpstream().toString().c_str(),
         g_usingFallback ? "true" : "false",
-        activePending);
+        activePending,
+        (unsigned long)g_stats.avgProc());
     webSocket.textAll(buf);
 }
 
@@ -200,13 +201,13 @@ void webUiSetup() {
             AsyncWebServerResponse *r = req->beginResponse(LittleFS, "/index.html.gz", "text/html");
             r->addHeader("Content-Encoding", "gzip");
             r->addHeader("Cache-Control", "public, max-age=3600, must-revalidate");
-            r->addHeader("ETag", "\"c6-v2.1\"");
+            r->addHeader("ETag", "\"c6-v2.2\"");
             _cors(r);
             req->send(r);
         } else if (LittleFS.exists("/index.html")) {
             AsyncWebServerResponse *r = req->beginResponse(LittleFS, "/index.html", "text/html");
             r->addHeader("Cache-Control", "public, max-age=3600, must-revalidate");
-            r->addHeader("ETag", "\"c6-v2.1\"");
+            r->addHeader("ETag", "\"c6-v2.2\"");
             _cors(r);
             req->send(r);
         } else {
@@ -255,7 +256,7 @@ void webUiSetup() {
             R"({"total":%lu,"blocked":%lu,"pct":%lu,"uptime":%lu,"heap":%lu,)"
             R"("ip":"%s","hashes":%lu,"cacheHits":%lu,"ssid":"%s","rssi":%d,)"
             R"("rssiTag":"%s","minRtt":%lu,"avgRtt":%lu,"maxRtt":%lu,)"
-            R"("rttHist":%s,"upstream":"%s","usingFallback":%s,"pending":%d})",
+            R"("rttHist":%s,"upstream":"%s","usingFallback":%s,"pending":%d,"avgProc":%lu})",
             (unsigned long)g_stats.totalQueries,
             (unsigned long)g_stats.blockedQueries,
             (unsigned long)g_stats.blockedPct(),
@@ -273,7 +274,8 @@ void webUiSetup() {
             rttHistBuf,
             currentUpstream().toString().c_str(),
             g_usingFallback ? "true" : "false",
-            activePending);
+            activePending,
+            (unsigned long)g_stats.avgProc());
         _sendJson(req, 200, buf);
     });
 

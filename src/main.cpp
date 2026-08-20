@@ -33,7 +33,7 @@ bool     fsReady     = false;
 IPAddress        UPSTREAM_DNS(1, 1, 1, 1);          // primary (user-configurable)
 IPAddress        UPSTREAM_DNS_FALLBACK(8, 8, 8, 8); // fallback / parallel race
 const uint16_t   DNS_PORT        = 53;
-const int        MAX_PENDING     = 32;              // power of 2 for bitwise AND
+const int        MAX_PENDING     = 128;             // power of 2 for bitwise AND (was 32)
 const uint32_t   QUERY_TIMEOUT   = 3000;            // ms
 
 WiFiUDP dnsServer;
@@ -71,7 +71,7 @@ struct AnswerCacheEntry {
     uint32_t expiresAt;
     bool     valid;
 };
-static const int ANSWER_CACHE_SIZE = 128;
+static const int ANSWER_CACHE_SIZE = 2048; // Was 128
 static AnswerCacheEntry s_ansCache[ANSWER_CACHE_SIZE];
 
 IRAM_ATTR static inline bool lookupAnswerCache(uint64_t hash, uint32_t now, uint32_t &ip4, uint32_t &remTtl) {
@@ -757,6 +757,8 @@ void loop()
         int pktSize = dnsServer.parsePacket();
         if (UNLIKELY(pktSize <= 12 || pktSize > 512)) break;
 
+        uint32_t startMicros = micros();
+
         static uint8_t s_dnsRxBuf[512];
         int       len        = dnsServer.read(s_dnsRxBuf, sizeof(s_dnsRxBuf));
         IPAddress clientIP   = dnsServer.remoteIP();
@@ -778,10 +780,9 @@ void loop()
         const uint16_t qtype   = ((uint16_t)s_dnsRxBuf[qnameEnd] << 8) | s_dnsRxBuf[qnameEnd + 1];
         const bool     blocked = isDomainBlocked(domain, domainLen, fullHash, labelOffsets, labelCount);
 
-        // Record stats + per-client stats + broadcast to web dashboard
+        // Record stats + per-client stats
         g_stats.record(domain, domainLen, qtype, blocked, clientIPStr);
         recordClient((uint32_t)clientIP, blocked, clientIPStr);
-        broadcastQuery(domain, qtype, blocked, clientIPStr);
 
         if (blocked) {
             sendSinkholeResponse(clientIP, clientPort, s_dnsRxBuf, len, qnameEnd, qtype);
@@ -800,5 +801,11 @@ void loop()
                 forwardUpstream(clientIP, clientPort, s_dnsRxBuf, len, fullHash, qtype, now);
             }
         }
+
+        uint32_t overhead = micros() - startMicros;
+        g_stats.recordProc(overhead);
+
+        // Broadcast to web dashboard AFTER sending the DNS response to minimize DNS latency
+        broadcastQuery(domain, qtype, blocked, clientIPStr);
     }
 }

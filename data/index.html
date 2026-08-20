@@ -461,6 +461,7 @@ tr:hover .row-actions{opacity:1}
       <div class="stat-val v-purple" id="sAvgRtt">—</div>
       <div class="stat-lbl">Avg DNS RTT</div>
       <div class="stat-sub" id="sRttRange"></div>
+      <div class="stat-sub" id="sProc" style="color:var(--accent);margin-top:3px;font-weight:600">Core Overhead: —</div>
     </div>
     <div class="stat-card">
       <div class="stat-val" id="sCache">0</div>
@@ -702,6 +703,15 @@ tr:hover .row-actions{opacity:1}
       </div>
 
       <div class="maint-section">
+        <h3>High Availability / Fallback</h3>
+        <p style="font-size:.78rem;color:var(--muted);margin-bottom:12px">
+          Some routers (like TP-Link) won't reliably switch to a secondary DNS if the ESP32 goes down. 
+          Download this auto-switcher script for your desktop to automatically bypass the router and use 1.1.1.1 if the sinkhole goes offline.
+        </p>
+        <button class="btn-act" onclick="downloadFallbackScript()" style="margin-bottom:24px;border:1px solid var(--accent)">
+          🛡️ Download Fallback Script (Windows)
+        </button>
+
         <h3>💾 Firmware OTA (ArduinoOTA)</h3>
         <div class="info-box">
           Flash new firmware wirelessly using PlatformIO:<br>
@@ -717,6 +727,13 @@ tr:hover .row-actions{opacity:1}
         <div class="ota-msg" id="rebootMsg"></div>
       </div>
 
+    </div>
+
+      <div class="maint-section" style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);">
+        <p style="font-size: .8rem; color: var(--muted); margin: 0;">
+          Designed and optimized for ESP32-C6 by <strong>Ismam Shahin Sami</strong> using Antigravity.
+        </p>
+      </div>
     </div>
   </div>
 
@@ -890,6 +907,7 @@ let isUserScrolled = false;
 
 // Real-Time Stats & Local Uptime
 let localUptime = 0;
+try { localUptime = parseInt(sessionStorage.getItem('c6_uptime') || '0'); } catch(_) {}
 let liveTotal = 0;
 let liveBlocked = 0;
 
@@ -1028,9 +1046,10 @@ function fallbackCopy(text) {
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
 function fmtUptime(s){
-  if(s<60)   return s+'s';
+  if(s<60) return s+'s';
   if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s';
-  return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m '+(s%60)+'s';
+  if(s<86400) return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m '+(s%60)+'s';
+  return Math.floor(s/86400)+'d '+Math.floor((s%86400)/3600)+'h '+Math.floor((s%3600)/60)+'m';
 }
 function fmtBytes(b){
   if(b>1048576) return (b/1048576).toFixed(1)+' MB';
@@ -1111,6 +1130,19 @@ function scrollFeedToTop() {
   renderFeed(false);
 }
 
+let renderTimeout = null;
+function requestRender() {
+  if (renderTimeout) return;
+  renderTimeout = setTimeout(() => {
+    renderTimeout = null;
+    if (!isUserScrolled) {
+      renderFeed(true);
+    }
+    updateTopDomains();
+    updateTypeDistribution();
+  }, 250);
+}
+
 function onQueryEvent(q){
   const now = Date.now();
   q._ts = now;
@@ -1138,10 +1170,19 @@ function onQueryEvent(q){
     document.getElementById('newQueriesCount').textContent = pendingScrollCount;
     pill.style.display = 'block';
   } else {
-    renderFeed(true);
+    requestRender();
   }
-  updateTopDomains();
-  updateTypeDistribution();
+  
+  if (isUserScrolled) {
+    // Only request render for charts if scrolled, feed stays static
+    if (!renderTimeout) {
+      renderTimeout = setTimeout(() => {
+        renderTimeout = null;
+        updateTopDomains();
+        updateTypeDistribution();
+      }, 250);
+    }
+  }
 }
 
 function setTypeFilter(f,btn){
@@ -1410,8 +1451,11 @@ async function runUpstreamBenchmark() {
 // ─── Smooth 1-Second Uptime Ticker & QPS Calculation Loop ─────────────────────
 setInterval(() => {
   // Smooth local uptime tick every second (no jumping!)
-  localUptime++;
-  document.getElementById('sUptime').textContent = fmtUptime(localUptime);
+  if (localUptime >= 0) {
+    localUptime++;
+    try { sessionStorage.setItem('c6_uptime', localUptime); } catch(_) {}
+    document.getElementById('sUptime').textContent = fmtUptime(localUptime);
+  }
 
   // QPS rate calculate
   const now = Date.now();
@@ -1439,12 +1483,16 @@ function onStatsEvent(s) {
     document.getElementById('sPct').textContent=s.pct+'%';
     if (Math.abs(localUptime - s.uptime) > 2) {
       localUptime = s.uptime;
+      try { sessionStorage.setItem('c6_uptime', localUptime); } catch(_) {}
       document.getElementById('sUptime').textContent=fmtUptime(localUptime);
     }
     document.getElementById('sHeap').textContent=fmtBytes(s.heap);
     document.getElementById('sCache').textContent=fmtNum(s.cacheHits);
     document.getElementById('sHashes').textContent=fmtNum(s.hashes)+' hashes';
     document.getElementById('sPending').textContent=s.pending||0;
+    if (s.avgProc !== undefined) {
+      document.getElementById('sProc').textContent = 'Core Overhead: ' + s.avgProc + ' µs';
+    }
 
     // Dynamic Title
     if (snoozeRemaining <= 0) {

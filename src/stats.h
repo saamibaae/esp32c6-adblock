@@ -40,6 +40,12 @@ struct Stats {
     int      rttHistHead  = 0;
     int      rttHistCount = 0;
 
+    // ── Internal Core Overhead Tracking (microseconds) ───────────────────
+    uint32_t minProc    = UINT32_MAX;
+    uint32_t maxProc    = 0;
+    uint64_t totalProc  = 0;
+    uint32_t procCount  = 0;
+
     // ── Circular query log — power of 2 ───────────────────────────────────
     QueryEntry log[QUERY_LOG_SIZE];
     int        logHead  = 0;
@@ -87,6 +93,18 @@ struct Stats {
 
     uint32_t avgRtt() const {
         return rttCount ? (uint32_t)(totalRtt / rttCount) : 0;
+    }
+
+    // Record internal CPU processing overhead
+    void recordProc(uint32_t us) {
+        if (us < minProc) minProc = us;
+        if (us > maxProc) maxProc = us;
+        totalProc += us;
+        procCount++;
+    }
+
+    uint32_t avgProc() const {
+        return procCount ? (uint32_t)(totalProc / procCount) : 0;
     }
 
     uint32_t uptimeSecs() const { return (millis() - startTime) / 1000; }
