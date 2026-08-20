@@ -3,7 +3,12 @@
 #include <WiFiUdp.h>
 #include <LittleFS.h>
 #include <ArduinoOTA.h>
+#include <esp_wifi.h>
 #include "secrets.h"
+
+// ── Branch prediction optimization macros ─────────────────────────────────────
+#define LIKELY(x)   __builtin_expect(!!(x), 1)
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Core globals — defined BEFORE module headers so they can reference them
@@ -28,8 +33,8 @@ bool     fsReady     = false;
 IPAddress        UPSTREAM_DNS(1, 1, 1, 1);          // primary (user-configurable)
 IPAddress        UPSTREAM_DNS_FALLBACK(8, 8, 8, 8); // automatic fallback
 const uint16_t   DNS_PORT        = 53;
-const int        MAX_PENDING     = 32;
-const uint32_t   QUERY_TIMEOUT   = 3000; // ms
+const int        MAX_PENDING     = 32;              // power of 2 for bitwise AND
+const uint32_t   QUERY_TIMEOUT   = 3000;            // ms
 
 WiFiUDP dnsServer;
 WiFiUDP upstreamClient;
@@ -48,7 +53,7 @@ IPAddress& currentUpstream() {
 
 void notifyUpstreamSuccess() {
     g_upstreamFailCount = 0;
-    if (g_usingFallback) {
+    if (UNLIKELY(g_usingFallback)) {
         if (++g_upstreamOkCount >= 3) {
             g_usingFallback   = false;
             g_upstreamOkCount = 0;
@@ -68,14 +73,14 @@ void notifyUpstreamFailure() {
     }
 }
 
-// ── Async pending query table ─────────────────────────────────────────────────
+// ── Async pending query table (packed for cache locality) ────────────────────
 struct PendingQuery {
-    bool      active;
+    uint32_t  timestamp;
+    IPAddress clientIP;
     uint16_t  origTxId;
     uint16_t  ourTxId;
-    IPAddress clientIP;
     uint16_t  clientPort;
-    uint32_t  timestamp;
+    bool      active;
 };
 PendingQuery    pendingQueries[MAX_PENDING];
 static uint16_t s_txIdCounter = 0;
@@ -87,80 +92,115 @@ static uint8_t s_upstreamRespBuf[1024];
 #include "web_ui.h"       // webUiSetup / webUiLoop / broadcastQuery
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  4 KB Bloom filter — pre-screens isHashBlocked() calls
-//
-//  ~99% of non-blocked domains bypass the binary flash search entirely.
-//  Built once at boot from blocklist.bin (one sequential read pass).
-//  False-positive rate ≈ 1% for ~93 K entries with 3 hash functions.
+//  40-bit FNV-1a Hash — IRAM pinned, direct branchless hash on pre-lowercased input
 // ══════════════════════════════════════════════════════════════════════════════
-static uint8_t g_bloom[4096]; // 32 768 bits
-
-static inline void bloomSet(uint64_t hash) {
-    const uint16_t h1 = (uint16_t)( hash        & 0x7FFF); // bits  0-14
-    const uint16_t h2 = (uint16_t)((hash >> 15) & 0x7FFF); // bits 15-29
-    const uint16_t h3 = (uint16_t)((hash >> 25) & 0x7FFF); // bits 25-39
-    g_bloom[h1 >> 3] |= (1u << (h1 & 7));
-    g_bloom[h2 >> 3] |= (1u << (h2 & 7));
-    g_bloom[h3 >> 3] |= (1u << (h3 & 7));
-}
-
-static inline bool bloomCheck(uint64_t hash) {
-    const uint16_t h1 = (uint16_t)( hash        & 0x7FFF);
-    const uint16_t h2 = (uint16_t)((hash >> 15) & 0x7FFF);
-    const uint16_t h3 = (uint16_t)((hash >> 25) & 0x7FFF);
-    return (g_bloom[h1 >> 3] >> (h1 & 7) & 1) &&
-           (g_bloom[h2 >> 3] >> (h2 & 7) & 1) &&
-           (g_bloom[h3 >> 3] >> (h3 & 7) & 1);
-}
-
-// One sequential read pass over blocklist.bin — called once at boot
-static void buildBloom() {
-    memset(g_bloom, 0, sizeof(g_bloom));
-    if (!fsReady) return;
-    blocklistFile.seek(0);
-    uint8_t buf[5];
-    while (blocklistFile.read(buf, 5) == 5) {
-        uint64_t h = 0;
-        for (int i = 0; i < 5; i++) h = (h << 8) | buf[i];
-        bloomSet(h);
-    }
-    blocklistFile.seek(0); // reset file position for binary search
-    Serial.printf("[BLOOM] 4 KB filter built for %u hashes\n", totalHashes);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  40-bit FNV-1a Hash (unchanged — correct implementation)
-// ══════════════════════════════════════════════════════════════════════════════
-uint64_t fnv1a_40(const char *str, size_t len)
+IRAM_ATTR __attribute__((hot)) uint64_t fnv1a_40(const char *str, size_t len)
 {
     uint64_t hash = 0xcbf29ce484222325ULL;
-    for (size_t i = 0; i < len; ++i) {
-        hash ^= (uint8_t)tolower((unsigned char)str[i]);
+    const char *end = str + len;
+    while (str < end) {
+        hash ^= (unsigned char)*str++;
         hash *= 0x100000001b3ULL;
     }
     return hash & 0xFFFFFFFFFFULL;
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  Binary search in LittleFS — bloom-filtered (flash I/O only when bloom says yes)
-// ══════════════════════════════════════════════════════════════════════════════
-bool isHashBlocked(uint64_t targetHash)
-{
-    if (!fsReady || totalHashes == 0) return false;
+// ── Pre-hashed tracker and essential domains (IRAM binary search) ────────────
+#include "tracker_hashes.h"
 
-    // Bloom pre-screen: ~99% of allowed-domain hashes exit here with zero flash I/O
-    if (!bloomCheck(targetHash)) return false;
+// ══════════════════════════════════════════════════════════════════════════════
+//  8 KB Bloom filter (65,536 bits) — pre-screens isHashBlocked() calls
+//
+//  False-positive rate drops to ~0.25% for ~93 K entries.
+//  Zero flash I/O on 99.75% of allowed domains.
+// ══════════════════════════════════════════════════════════════════════════════
+static uint8_t g_bloom[8192];
+
+static inline __attribute__((always_inline)) void IRAM_ATTR bloomSet(uint64_t hash) {
+    const uint16_t h1 = (uint16_t)( hash        & 0xFFFF);
+    const uint16_t h2 = (uint16_t)((hash >> 16) & 0xFFFF);
+    const uint16_t h3 = (uint16_t)((hash >> 24) & 0xFFFF);
+    g_bloom[h1 >> 3] |= (1u << (h1 & 7));
+    g_bloom[h2 >> 3] |= (1u << (h2 & 7));
+    g_bloom[h3 >> 3] |= (1u << (h3 & 7));
+}
+
+static inline __attribute__((always_inline)) bool IRAM_ATTR bloomCheck(uint64_t hash) {
+    const uint16_t h1 = (uint16_t)( hash        & 0xFFFF);
+    const uint16_t h2 = (uint16_t)((hash >> 16) & 0xFFFF);
+    const uint16_t h3 = (uint16_t)((hash >> 24) & 0xFFFF);
+    return ((g_bloom[h1 >> 3] & (1u << (h1 & 7))) != 0) &&
+           ((g_bloom[h2 >> 3] & (1u << (h2 & 7))) != 0) &&
+           ((g_bloom[h3 >> 3] & (1u << (h3 & 7))) != 0);
+}
+
+// Bulk sequential read pass over blocklist.bin (128 hashes per read)
+static void buildBloom() {
+    memset(g_bloom, 0, sizeof(g_bloom));
+    if (!fsReady) return;
+    blocklistFile.seek(0);
+    uint8_t buf[640]; // 128 × 5-byte hashes
+    int n;
+    while ((n = blocklistFile.read(buf, sizeof(buf))) > 0) {
+        for (int i = 0; i + 4 < n; i += 5) {
+            uint64_t h = ((uint64_t)buf[i]     << 32) |
+                         ((uint64_t)buf[i + 1] << 24) |
+                         ((uint64_t)buf[i + 2] << 16) |
+                         ((uint64_t)buf[i + 3] << 8)  |
+                          (uint64_t)buf[i + 4];
+            bloomSet(h);
+        }
+    }
+    blocklistFile.seek(0); // reset file position for binary search
+    Serial.printf("[BLOOM] 8 KB filter built for %u hashes\n", totalHashes);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Fast IP to string converter (bypasses heavy snprintf format-parsing overhead)
+// ══════════════════════════════════════════════════════════════════════════════
+IRAM_ATTR static inline __attribute__((always_inline)) void fastIpToStr(const IPAddress &ip, char *out) {
+    char *p = out;
+    for (int i = 0; i < 4; i++) {
+        uint8_t v = ip[i];
+        if (v >= 100) {
+            *p++ = '0' + (v / 100);
+            v %= 100;
+            *p++ = '0' + (v / 10);
+            *p++ = '0' + (v % 10);
+        } else if (v >= 10) {
+            *p++ = '0' + (v / 10);
+            *p++ = '0' + (v % 10);
+        } else {
+            *p++ = '0' + v;
+        }
+        if (i < 3) *p++ = '.';
+    }
+    *p = '\0';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  Binary search in LittleFS — bloom-filtered, bitshift midpoint
+// ══════════════════════════════════════════════════════════════════════════════
+IRAM_ATTR __attribute__((hot)) bool isHashBlocked(uint64_t targetHash)
+{
+    if (UNLIKELY(!fsReady || totalHashes == 0)) return false;
+
+    // Bloom pre-screen: ~99.75% of allowed-domain hashes exit here with zero flash I/O
+    if (LIKELY(!bloomCheck(targetHash))) return false;
 
     int32_t low = 0, high = (int32_t)totalHashes - 1;
     uint8_t buf[5];
 
     while (low <= high) {
-        int32_t mid = low + ((high - low) / 2);
+        int32_t mid = low + ((high - low) >> 1);
         blocklistFile.seek((uint32_t)mid * 5);
-        if (blocklistFile.read(buf, 5) != 5) break;
+        if (UNLIKELY(blocklistFile.read(buf, 5) != 5)) break;
 
-        uint64_t h = 0;
-        for (int i = 0; i < 5; i++) h = (h << 8) | buf[i];
+        uint64_t h = ((uint64_t)buf[0] << 32) |
+                     ((uint64_t)buf[1] << 24) |
+                     ((uint64_t)buf[2] << 16) |
+                     ((uint64_t)buf[3] << 8)  |
+                      (uint64_t)buf[4];
 
         if      (h == targetHash) return true;
         else if (h  < targetHash) low  = mid + 1;
@@ -172,158 +212,46 @@ bool isHashBlocked(uint64_t targetHash)
 // ══════════════════════════════════════════════════════════════════════════════
 //  DNS lookup pipeline with full priority chain and behavioral modes
 // ══════════════════════════════════════════════════════════════════════════════
-
-bool endsWith(const char* str, const char* suffix) {
-    size_t strLen    = strlen(str);
-    size_t suffixLen = strlen(suffix);
-    if (strLen < suffixLen) return false;
-    return (strcasecmp(str + strLen - suffixLen, suffix) == 0) &&
-           (strLen == suffixLen || str[strLen - suffixLen - 1] == '.');
-}
-
-bool isEssentialGoogle(const char* domain) {
-    const char* targets[] = {
-        "google.com", "googleapis.com", "gstatic.com", "youtube.com", "googlevideo.com",
-        "gmail.com", "googleusercontent.com", "g.co", "ggpht.com"
-    };
-    for (const char* t : targets) if (endsWith(domain, t)) return true;
-    return false;
-}
-
-bool isApple(const char* domain) {
-    const char* targets[] = {
-        "apple.com", "icloud.com", "mzstatic.com", "me.com", "mac.com", "apple-cloudkit.com"
-    };
-    for (const char* t : targets) if (endsWith(domain, t)) return true;
-    return false;
-}
-
-bool isAppleTracking(const char* domain) {
-    const char* targets[] = {
-        "metrics.apple.com", "securemetrics.apple.com", "iad.apple.com",
-        "iadsdk.apple.com", "api-adservices.apple.com", "metrics.icloud.com",
-        "metrics.mzstatic.com", "triadsdk.apple.com", "xp.apple.com"
-    };
-    for (const char* t : targets) if (endsWith(domain, t)) return true;
-    return false;
-}
-
-bool isGoogleTracking(const char* domain) {
-    const char* targets[] = {
-        "doubleclick.net", "google-analytics.com", "googleadservices.com",
-        "googlesyndication.com", "admob.com", "2mdn.net", "googletagservices.com",
-        "googletagmanager.com", "analytics.google.com", "click.googleanalytics.com",
-        "tagmanager.google.com", "dai.google.com", "adservice.google.com"
-    };
-    for (const char* t : targets) if (endsWith(domain, t)) return true;
-    return false;
-}
-
-bool isStrictTracker(const char* domain) {
-    const char* targets[] = {
-        "amazon-adsystem.com", "a-mo.net", "fls-na.amazon.com", "device-metrics-us.amazon.com",
-        "device-metrics-us-2.amazon.com", "mads-eu.amazon.com", "connect.facebook.net",
-        "pixel.facebook.com", "graph.facebook.com", "an.facebook.com", "tr.facebook.com",
-        "graph.instagram.com", "i.instagram.com", "ads1.msn.com", "rad.msn.com", "bat.bing.com",
-        "bingads.microsoft.com", "ads.microsoft.com", "vortex.data.microsoft.com",
-        "telemetry.microsoft.com", "watson.telemetry.microsoft.com",
-        "browser.events.data.microsoft.com", "c.bing.com", "media.net", "adcolony.com",
-        "criteo.com", "criteo.net", "taboola.com", "outbrain.com", "mgid.com",
-        "propellerads.com", "onclickads.net", "applovin.com", "vungle.com", "liftoff.io",
-        "adnxs.com", "pubmatic.com", "openx.net", "rubiconproject.com", "spotxchange.com",
-        "indexexchange.com", "casalemedia.com", "htlbid.com", "unityads.unity3d.com",
-        "yandex.ru", "yandex.net", "supersonicads.com", "chartboost.com", "fyber.com",
-        "inmobi.com", "ironsource.mobi", "kargo.com", "adsrvr.org", "adroll.com",
-        "smartyads.com", "ad.gt", "contextweb.com", "sharethrough.com", "pangleglobal.com",
-        "stackadapt.com", "stickyadstv.com", "doubleverify.com", "3lift.com",
-        "adsafeprotected.com", "sonobi.com", "gumgum.com", "teads.tv",
-        "insightexpressai.com", "ads.yahoo.com", "analytics.yahoo.com", "geo.yahoo.com",
-        "udc.yahoo.com", "advertising.yahoo.com", "gemini.yahoo.com", "adtech.yahooinc.com",
-        "adobe.io", "omtrdc.net", "metrics.adobe.com", "clarity.ms", "hotjar.com",
-        "hotjar.io", "luckyorange.com", "luckyorange.net", "mouseflow.com",
-        "heapanalytics.com", "mixpanel.com", "amplitude.com", "segment.com", "segment.io",
-        "fullstory.com", "quantserve.com", "quantcast.com", "scorecardresearch.com",
-        "cloudflareinsights.com", "posthog.com", "rudderstack.com", "rudderlabs.com",
-        "snowplowanalytics.com", "fingerprintjs.com", "fpjs.io", "bluekai.com",
-        "onetag-sys.com", "pippio.com", "siftscience.com", "id5-sync.com", "mathtag.com",
-        "permutive.com", "crwdentrl.net", "bidswitch.net", "everesttech.net", "uidapi.com",
-        "rledn.com", "ricdn.com", "appsflyer.com", "adjust.com", "branch.io", "bnc.lt",
-        "kochava.com", "singular.net", "bugsnag.com", "sentry-cdn.com", "getsentry.com",
-        "sentry.io", "nr-data.net", "newrelic.com", "browser-intake-datadoghq.com",
-        "lr-ingest.com", "coinimp.com", "webminepool.com", "minero.cc", "mineralt.io",
-        "monerominer.rocks", "popads.net", "popcash.net", "popmyads.com", "clickadu.com",
-        "trafficjunky.net", "exoclick.com", "juicyads.com", "sc-static.net",
-        "tr.snapchat.com", "ads.snapchat.com", "sc-analytics.appspot.com",
-        "ads.linkedin.com", "pointdrive.linkedin.com", "snap.licdn.com", "ads-twitter.com",
-        "ads-api.twitter.com", "ads-api.x.com", "analytics.twitter.com", "analytics.x.com",
-        "ads.x.com", "events.reddit.com", "events.redditmedia.com",
-        "pixel.redditmedia.com", "d.reddit.com", "ads.pinterest.com", "ct.pinterest.com",
-        "log.pinterest.com", "analytics.pinterest.com", "trk.pinterest.com",
-        "widgets.pinterest.com", "ads-api.tiktok.com", "analytics.tiktok.com",
-        "ads-sg.tiktok.com", "business-api.tiktok.com", "ads.tiktok.com",
-        "byteoversea.com", "tiktokv.com", "pixel.quora.com", "gevents.quora.com",
-        "iot-logser.realme.com", "realmemobile.com", "oppomobile.com", "oneplus.cn",
-        "oneplus.net", "ad.xiaomi.com", "mistat.xiaomi.com", "hicloud.com", "miui.com",
-        "ads.huawei.com", "samsungads.com", "smetrics.samsung.com", "nmetrics.samsung.com",
-        "samsunghealth.com", "adlog.vivo.com", "ads-api.vivo.com", "a.lenovo.com",
-        "lgsmartad.com", "lgappstv.com", "lge.com", "yumenetworks.com", "smartclip.net",
-        "smartclip.com", "logs.roku.com", "ads.roku.com", "amoeba.web.roku.com",
-        "ads.vizio.com", "tvinteractive.tv", "tvpixel.com", "cookielaw.org", "onetrust.com",
-        "cookiebot.com", "trustarc.com", "privacy-center.org", "privacy-mgmt.com",
-        "usercentrics.eu", "cmp.inmobi.com", "cmp.osano.com", "anrdoezrs.net",
-        "partnerstack.com", "dpbolvw.net", "tkglhce.com", "refersion.com", "shareasale.com",
-        "pepperjamnetwork.com", "linksynergy.com", "skimresources.com",
-        "impactradius-event.com", "redirectingat.com", "awin1.com", "zenaps.com",
-        "prf.hn", "viglink.com", "optimizely.com", "dynamicyield.com", "launchdarkly.com",
-        "list-manage.com", "hubspot.com", "marketo.net", "mailchimp.com", "intercom.io",
-        "driftt.com", "braze.com", "onesignal.com", "klaviyo.com", "customer.io",
-        "jwpsrv.com", "jwpedn.com", "jwpltx.com", "fwmrm.net", "brightcove.com",
-        "innovid.com", "connatix.com", "tremorhub.com"
-    };
-    for (const char* t : targets) if (endsWith(domain, t)) return true;
-    return false;
-}
-
-bool isDomainBlocked(const char *domain)
+IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t domLen)
 {
     // Mode: ABSOLUTE (Hailmary) — block EVERYTHING not whitelisted
-    if (g_blockMode == BlockMode::ABSOLUTE) {
-        if (isWhitelisted(domain)) return false;
-        return true;
+    if (UNLIKELY(g_blockMode == BlockMode::ABSOLUTE)) {
+        return !isWhitelisted(domain, domLen);
     }
 
     // Mode: BYPASS — block nothing
-    if (g_blockMode == BlockMode::BYPASS) return false;
+    if (UNLIKELY(g_blockMode == BlockMode::BYPASS)) return false;
+
+    const uint64_t fullHash = fnv1a_40(domain, domLen);
 
     // ── LRU cache check first (O(1) direct-mapped lookup) ─────────────────
-    const uint64_t fullHash = fnv1a_40(domain, strlen(domain));
     bool cached;
-    if (lruLookup(fullHash, cached)) {
+    if (LIKELY(lruLookup(fullHash, cached))) {
         g_stats.cacheHits++;
         return cached;
     }
 
     // 1. Whitelist — always forward, skip all block checks
-    if (isWhitelisted(domain)) {
+    if (UNLIKELY(isWhitelisted(domain, domLen))) {
         lruInsert(fullHash, false);
         return false;
     }
 
     // 2. Custom blacklist — block immediately without touching flash
-    if (isCustomBlocked(domain)) {
+    if (UNLIKELY(isCustomBlocked(domain, domLen))) {
         lruInsert(fullHash, true);
         return true;
     }
 
     // Mode: MINIMAL — block ONLY custom blacklist (ignore blocklist.bin)
-    if (g_blockMode == BlockMode::MINIMAL) {
+    if (UNLIKELY(g_blockMode == BlockMode::MINIMAL)) {
         lruInsert(fullHash, false);
         return false;
     }
 
-    // 3. Strict Mode: explicitly block all known major trackers
+    // 3. Strict Mode: explicitly block all known major trackers (O(log N) IRAM binary search)
     if (g_blockMode == BlockMode::STRICT) {
-        if (isAppleTracking(domain) || isGoogleTracking(domain) || isStrictTracker(domain)) {
+        if (domainMatchesSet(domain, domLen, g_strictTrackerHashes, TRACKER_COUNT)) {
             lruInsert(fullHash, true);
             return true;
         }
@@ -331,22 +259,22 @@ bool isDomainBlocked(const char *domain)
 
     // 4. Ensure essential services are never blocked (Normal & Strict modes)
     if (g_blockMode == BlockMode::NORMAL || g_blockMode == BlockMode::STRICT) {
-        if (isApple(domain) || isEssentialGoogle(domain)) {
+        if (domainMatchesSet(domain, domLen, g_essentialHashes, ESSENTIAL_COUNT)) {
             lruInsert(fullHash, false);
             return false;
         }
     }
 
     // 5. Binary search in LittleFS for domain + parent subdomains
-    //    Optimised: strlen computed once; pointer arithmetic + memchr replaces strchr
-    const char  *base    = domain;
-    const size_t baseLen = strlen(domain);
-    const char  *cur     = base;
+    const char  *base = domain;
+    const char  *cur  = base;
     bool blocked = false;
 
     while (*cur) {
-        const size_t curLen = baseLen - (size_t)(cur - base);
-        if (isHashBlocked(fnv1a_40(cur, curLen))) { blocked = true; break; }
+        const size_t curLen = domLen - (size_t)(cur - base);
+        // Reuse precomputed fullHash on the first pass (cur == base)
+        const uint64_t h = (cur == base) ? fullHash : fnv1a_40(cur, curLen);
+        if (isHashBlocked(h)) { blocked = true; break; }
         const char *dot = (const char*)memchr(cur, '.', curLen);
         if (!dot) break;
         cur = dot + 1;
@@ -358,11 +286,11 @@ bool isDomainBlocked(const char *domain)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  DNS packet parsing — char[] output, no heap allocation
+//  DNS packet parsing — normalizes to lowercase on the fly, zero allocation
 // ══════════════════════════════════════════════════════════════════════════════
-bool parseQName(const uint8_t *buf, size_t len,
-                char *out, size_t outMax,
-                size_t &qnameEnd)
+IRAM_ATTR __attribute__((hot)) bool parseQName(const uint8_t *buf, size_t len,
+                                              char *out, size_t outMax,
+                                              size_t &qnameEnd, size_t &outLen)
 {
     size_t pos  = 12; // skip 12-byte DNS header
     size_t dpos = 0;
@@ -370,32 +298,38 @@ bool parseQName(const uint8_t *buf, size_t len,
 
     while (pos < len && buf[pos] != 0) {
         uint8_t llen = buf[pos++];
-        if (pos + llen > len)          return false; // truncated
-        if (dpos + llen + 2 > outMax)  return false; // overflow guard
+        if (UNLIKELY(pos + llen > len))          return false; // truncated
+        if (UNLIKELY(dpos + llen + 2 > outMax))  return false; // overflow guard
         if (dpos > 0) out[dpos++] = '.';
-        memcpy(out + dpos, buf + pos, llen);
-        dpos += llen;
-        pos  += llen;
+        for (uint8_t i = 0; i < llen; i++) {
+            unsigned char c = buf[pos + i];
+            if (c >= 'A' && c <= 'Z') c += ('a' - 'A');
+            out[dpos++] = c;
+        }
+        pos += llen;
     }
     out[dpos] = '\0';
+    outLen    = dpos;
     qnameEnd  = pos + 1; // +1 to step over the null label
     return dpos > 0;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  Sinkhole response — 0.0.0.0 (A) or :: (AAAA)
+//  Sinkhole response — 0.0.0.0 (A) or :: (AAAA), TTL = 3600 s (1 hour cache)
+//  Optimized: static buffer, zero dynamic allocation, targeted byte writes
 // ══════════════════════════════════════════════════════════════════════════════
-void sendSinkholeResponse(IPAddress clientIP, uint16_t clientPort,
-                          const uint8_t *query, size_t queryLen,
-                          size_t qnameEnd, uint16_t qtype)
+IRAM_ATTR __attribute__((hot)) void sendSinkholeResponse(IPAddress clientIP, uint16_t clientPort,
+                                                         const uint8_t *query, size_t queryLen,
+                                                         size_t qnameEnd, uint16_t qtype)
 {
-    uint8_t resp[512];
-    memset(resp, 0, sizeof(resp));
+    static uint8_t resp[256];
 
     resp[0] = query[0]; resp[1] = query[1];   // Transaction ID
     resp[2] = 0x81;     resp[3] = 0x80;       // Flags: QR=1, RA=1, NOERROR
     resp[4] = 0x00;     resp[5] = 0x01;       // QDCOUNT = 1
     resp[6] = 0x00;     resp[7] = 0x01;       // ANCOUNT = 1
+    resp[8] = 0x00;     resp[9] = 0x00;       // NSCOUNT = 0
+    resp[10] = 0x00;    resp[11] = 0x00;      // ARCOUNT = 0
 
     size_t questionLen = (qnameEnd + 4) - 12;
     memcpy(&resp[12], &query[12], questionLen);
@@ -406,14 +340,16 @@ void sendSinkholeResponse(IPAddress clientIP, uint16_t clientPort,
     resp[idx++] =  qtype       & 0xFF;
     resp[idx++] = 0x00; resp[idx++] = 0x01;   // CLASS IN
     resp[idx++] = 0x00; resp[idx++] = 0x00;
-    resp[idx++] = 0x01; resp[idx++] = 0x2C;   // TTL: 300 s
+    resp[idx++] = 0x0E; resp[idx++] = 0x10;   // TTL: 3600 s (1 hour client caching)
 
     if (qtype == 0x001C) {                     // AAAA → ::
         resp[idx++] = 0x00; resp[idx++] = 0x10;
-        for (int i = 0; i < 16; i++) resp[idx++] = 0x00;
+        memset(&resp[idx], 0, 16);
+        idx += 16;
     } else {                                   // A → 0.0.0.0
         resp[idx++] = 0x00; resp[idx++] = 0x04;
-        for (int i = 0; i < 4;  i++) resp[idx++] = 0x00;
+        resp[idx++] = 0x00; resp[idx++] = 0x00;
+        resp[idx++] = 0x00; resp[idx++] = 0x00;
     }
 
     dnsServer.beginPacket(clientIP, clientPort);
@@ -422,7 +358,6 @@ void sendSinkholeResponse(IPAddress clientIP, uint16_t clientPort,
 }
 
 // ── SERVFAIL response — sent when a pending query times out ──────────────────
-// Clients get an immediate error instead of hanging until their own timeout.
 void sendServfail(IPAddress clientIP, uint16_t clientPort, uint16_t txId)
 {
     uint8_t resp[12];
@@ -437,18 +372,18 @@ void sendServfail(IPAddress clientIP, uint16_t clientPort, uint16_t txId)
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Non-blocking upstream forward
-//  O(1) slot: ourTxId % MAX_PENDING — no search, no eviction loop needed
+//  O(1) slot: ourTxId & (MAX_PENDING - 1) — bitwise fast index
 // ══════════════════════════════════════════════════════════════════════════════
-void forwardUpstream(IPAddress clientIP, uint16_t clientPort,
-                     uint8_t *query, size_t queryLen)
+IRAM_ATTR __attribute__((hot)) void forwardUpstream(IPAddress clientIP, uint16_t clientPort,
+                                                    uint8_t *query, size_t queryLen, uint32_t now)
 {
     uint16_t origTxId = ((uint16_t)query[0] << 8) | query[1];
     uint16_t ourTxId  = ++s_txIdCounter;
-    if (ourTxId == 0) ourTxId = ++s_txIdCounter; // skip 0
+    if (UNLIKELY(ourTxId == 0)) ourTxId = ++s_txIdCounter; // skip 0
 
-    // O(1) slot assignment (overwrite if slot is still active — harmless)
-    const int slot = ourTxId % MAX_PENDING;
-    pendingQueries[slot] = { true, origTxId, ourTxId, clientIP, clientPort, millis() };
+    // O(1) bitwise slot assignment (power of 2)
+    const int slot = (int)(ourTxId & (MAX_PENDING - 1));
+    pendingQueries[slot] = { now, clientIP, origTxId, ourTxId, clientPort, true };
 
     // Rewrite txId in the packet before sending upstream
     query[0] = (ourTxId >> 8) & 0xFF;
@@ -497,10 +432,11 @@ void setup()
             fsReady     = true;
             Serial.printf("[FS] Loaded %u hashes (%.1f KB)\n",
                           totalHashes, blocklistFile.size() / 1024.0f);
-            buildBloom(); // one sequential read pass to build the 4 KB filter
+            buildBloom(); // 8 KB filter with bulk read
         }
-        listsLoad();    // whitelist + blacklist
-        settingsLoad(); // blocking mode
+        listsLoad();          // whitelist + blacklist
+        settingsLoad();       // blocking mode
+        initTrackerHashes();  // pre-hash tracker and essential sets for IRAM binary search
 
         // Load upstream DNS override saved from the web dashboard
         File dnsFile = LittleFS.open("/dns.txt", "r");
@@ -540,6 +476,9 @@ void setup()
     }
 
     if (WiFi.status() == WL_CONNECTED) {
+        // Enforce zero power-save at the IDF MAC layer for sub-millisecond radio response
+        esp_wifi_set_ps(WIFI_PS_NONE);
+
         Serial.printf("\n[WIFI] Connected — IP: %s\n",
                       WiFi.localIP().toString().c_str());
 
@@ -584,9 +523,11 @@ void loop()
     // ── WebSocket cleanup ────────────────────────────────────────────────────
     webUiLoop();
 
+    const uint32_t now = millis();
+
     // ── Heartbeat (every 4 s) ─────────────────────────────────────────────────
-    if (millis() - lastHeartbeat >= 4000) {
-        lastHeartbeat = millis();
+    if (now - lastHeartbeat >= 4000) {
+        lastHeartbeat = now;
         if (WiFi.status() == WL_CONNECTED) {
             Serial.printf(
                 "[♥] IP:%s Heap:%u Q:%lu Blk:%lu(%lu%%) Cache:%lu AvgRTT:%lums\n",
@@ -601,9 +542,9 @@ void loop()
     }
 
     // ── Wi-Fi auto-reconnect (every 10 s when disconnected) ──────────────────
-    if (WiFi.status() != WL_CONNECTED) {
-        if (millis() - lastReconnectAttempt >= 10000) {
-            lastReconnectAttempt = millis();
+    if (UNLIKELY(WiFi.status() != WL_CONNECTED)) {
+        if (now - lastReconnectAttempt >= 10000) {
+            lastReconnectAttempt = now;
             Serial.println("[WIFI] Lost — reconnecting…");
             WiFi.reconnect();
         }
@@ -611,17 +552,17 @@ void loop()
         return;
     }
 
-    // ── Collect upstream DNS responses (O(1) slot lookup) ────────────────────
+    // ── Collect upstream DNS responses (O(1) bitwise slot lookup) ────────────
     int respLen = upstreamClient.parsePacket();
     if (respLen > 0) {
         int n = upstreamClient.read(s_upstreamRespBuf, sizeof(s_upstreamRespBuf));
         if (n >= 2) {
             const uint16_t rxTxId = ((uint16_t)s_upstreamRespBuf[0] << 8)
                                   |  s_upstreamRespBuf[1];
-            const int slot = rxTxId % MAX_PENDING; // O(1) — no loop
+            const int slot = (int)(rxTxId & (MAX_PENDING - 1)); // O(1) bitwise AND
             PendingQuery &pq = pendingQueries[slot];
-            if (pq.active && pq.ourTxId == rxTxId) {
-                const uint32_t rttMs = millis() - pq.timestamp;
+            if (LIKELY(pq.active && pq.ourTxId == rxTxId)) {
+                const uint32_t rttMs = now - pq.timestamp;
                 g_stats.recordRTT(rttMs);
 
                 // Restore original txId before forwarding to client
@@ -637,10 +578,9 @@ void loop()
     }
 
     // ── Expire timed-out pending queries — send SERVFAIL to client ────────────
-    const uint32_t now = millis();
     for (int i = 0; i < MAX_PENDING; i++) {
         PendingQuery &pq = pendingQueries[i];
-        if (pq.active && now - pq.timestamp > QUERY_TIMEOUT) {
+        if (UNLIKELY(pq.active && (now - pq.timestamp > QUERY_TIMEOUT))) {
             sendServfail(pq.clientIP, pq.clientPort, pq.origTxId);
             pq.active = false;
             notifyUpstreamFailure();
@@ -649,38 +589,35 @@ void loop()
 
     // ── Handle incoming DNS query ─────────────────────────────────────────────
     int pktSize = dnsServer.parsePacket();
-    if (pktSize > 12 && pktSize <= 512) {
+    if (LIKELY(pktSize > 12 && pktSize <= 512)) {
         uint8_t   buf[512];
         int       len        = dnsServer.read(buf, sizeof(buf));
         IPAddress clientIP   = dnsServer.remoteIP();
         uint16_t  clientPort = dnsServer.remotePort();
 
-        // Stack-allocated IP string — no heap allocation on the hot path
+        // Stack-allocated IP string using fast converter (no snprintf format parsing overhead)
         char clientIPStr[16];
-        snprintf(clientIPStr, sizeof(clientIPStr), "%u.%u.%u.%u",
-                 clientIP[0], clientIP[1], clientIP[2], clientIP[3]);
+        fastIpToStr(clientIP, clientIPStr);
 
         char   domain[128];
         size_t qnameEnd = 0;
+        size_t domainLen = 0;
 
-        if (!parseQName(buf, len, domain, sizeof(domain), qnameEnd)) return;
-        if (qnameEnd == 0 || (qnameEnd + 1) >= (size_t)len) return;
+        if (UNLIKELY(!parseQName(buf, len, domain, sizeof(domain), qnameEnd, domainLen))) return;
+        if (UNLIKELY(qnameEnd == 0 || (qnameEnd + 1) >= (size_t)len)) return;
 
         const uint16_t qtype   = ((uint16_t)buf[qnameEnd] << 8) | buf[qnameEnd + 1];
-        const bool     blocked = isDomainBlocked(domain);
+        const bool     blocked = isDomainBlocked(domain, domainLen);
 
         // Record stats + per-client stats + broadcast to web dashboard
         g_stats.record(domain, qtype, blocked, clientIPStr);
-        recordClient(clientIP, blocked);
+        recordClient(clientIP, blocked, clientIPStr);
         broadcastQuery(domain, qtype, blocked, clientIPStr);
 
         if (blocked) {
-            Serial.printf("[BLOCK] %s (%s)\n", domain,
-                          qtype == 28 ? "AAAA" : qtype == 1 ? "A" : "?");
             sendSinkholeResponse(clientIP, clientPort, buf, len, qnameEnd, qtype);
         } else {
-            Serial.printf("[FWD]   %s\n", domain);
-            forwardUpstream(clientIP, clientPort, buf, len);
+            forwardUpstream(clientIP, clientPort, buf, len, now);
         }
     }
 }

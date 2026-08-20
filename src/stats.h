@@ -8,7 +8,7 @@
 //   • rttHistory[30] — circular buffer of last 30 upstream RTT measurements
 //   • minRtt / maxRtt / totalRtt / rttCount — for min/avg/max display
 //   • rttMs field in QueryEntry — RTT for forwarded queries (0 = blocked/cached)
-//   • QUERY_LOG_SIZE bumped from 30 → 50
+//   • QUERY_LOG_SIZE bumped to 50
 // ─────────────────────────────────────────────────────────────────────────────
 
 static const int QUERY_LOG_SIZE = 50;
@@ -59,7 +59,9 @@ struct Stats {
         e.timestamp = millis();
         e.rttMs     = rttMs;
 
-        logHead = (logHead + 1) % QUERY_LOG_SIZE;
+        int next = logHead + 1;
+        if (next >= QUERY_LOG_SIZE) next = 0;
+        logHead = next;
         if (logCount < QUERY_LOG_SIZE) logCount++;
     }
 
@@ -72,7 +74,9 @@ struct Stats {
         rttCount++;
 
         rttHistory[rttHistHead] = val;
-        rttHistHead = (rttHistHead + 1) % 30;
+        int next = rttHistHead + 1;
+        if (next >= 30) next = 0;
+        rttHistHead = next;
         if (rttHistCount < 30) rttHistCount++;
     }
 

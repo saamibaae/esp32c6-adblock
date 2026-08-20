@@ -28,7 +28,7 @@ void clientsInit() {
     memset(g_clients, 0, sizeof(g_clients));
 }
 
-void recordClient(const IPAddress &ip, bool blocked) {
+IRAM_ATTR void recordClient(const IPAddress &ip, bool blocked, const char *ipStr) {
     const uint32_t key = (uint32_t)ip;
     const uint32_t now = millis();
 
@@ -58,6 +58,5 @@ void recordClient(const IPAddress &ip, bool blocked) {
     g_clients[slot].total    = 1;
     g_clients[slot].blocked  = blocked ? 1 : 0;
     g_clients[slot].lastSeen = now;
-    snprintf(g_clients[slot].ipStr, sizeof(g_clients[slot].ipStr),
-             "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+    strlcpy(g_clients[slot].ipStr, ipStr, sizeof(g_clients[slot].ipStr));
 }

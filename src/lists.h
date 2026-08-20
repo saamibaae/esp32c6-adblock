@@ -9,8 +9,8 @@
 // /whitelist.txt  –  one domain per line; matching skips ALL block checks
 // /blacklist.txt  –  one domain per line; blocks BEFORE blocklist.bin lookup
 //
-// Both lists are loaded into RAM vectors on boot. Max practical size: ~200
-// entries each before heap pressure becomes a concern.
+// Both lists are normalized to lowercase on load. Matching uses fast length
+// pre-checks and memcmp rather than expensive locale-aware strcasecmp.
 // ─────────────────────────────────────────────────────────────────────────────
 
 #define WHITELIST_FILE "/whitelist.txt"
@@ -28,6 +28,7 @@ static void _readListFile(const char *path, std::vector<String> &list) {
     while (f.available()) {
         String line = f.readStringUntil('\n');
         line.trim();
+        line.toLowerCase();
         if (line.length() > 0 && line[0] != '#')
             list.push_back(line);
     }
@@ -41,15 +42,14 @@ static void _writeListFile(const char *path, const std::vector<String> &list) {
     f.close();
 }
 
-// True if `domain` equals `entry` or is a subdomain of it.
-static bool _matches(const char *domain, const String &entry) {
-    size_t domLen = strlen(domain);
-    size_t entLen = entry.length();
+// True if `domain` (lowercase) equals `entry` or is a subdomain of it.
+IRAM_ATTR static inline bool _matches(const char *domain, size_t domLen, const String &entry) {
+    const size_t entLen = entry.length();
     if (domLen == entLen)
-        return strcasecmp(domain, entry.c_str()) == 0;
+        return memcmp(domain, entry.c_str(), domLen) == 0;
     if (domLen > entLen + 1 &&
         domain[domLen - entLen - 1] == '.' &&
-        strcasecmp(domain + domLen - entLen, entry.c_str()) == 0)
+        memcmp(domain + domLen - entLen, entry.c_str(), entLen) == 0)
         return true;
     return false;
 }
@@ -63,22 +63,26 @@ void listsLoad() {
                   (int)g_whitelist.size(), (int)g_blacklist.size());
 }
 
-bool isWhitelisted(const char *domain) {
+IRAM_ATTR bool isWhitelisted(const char *domain, size_t domLen) {
+    if (g_whitelist.empty()) return false;
     for (const auto &e : g_whitelist)
-        if (_matches(domain, e)) return true;
+        if (_matches(domain, domLen, e)) return true;
     return false;
 }
 
-bool isCustomBlocked(const char *domain) {
+IRAM_ATTR bool isCustomBlocked(const char *domain, size_t domLen) {
+    if (g_blacklist.empty()) return false;
     for (const auto &e : g_blacklist)
-        if (_matches(domain, e)) return true;
+        if (_matches(domain, domLen, e)) return true;
     return false;
 }
 
 bool addToWhitelist(const char *domain) {
     String d(domain);
+    d.trim();
+    d.toLowerCase();
     for (const auto &e : g_whitelist)
-        if (e.equalsIgnoreCase(d)) return false; // duplicate
+        if (e == d) return false; // duplicate
     g_whitelist.push_back(d);
     _writeListFile(WHITELIST_FILE, g_whitelist);
     return true;
@@ -86,8 +90,10 @@ bool addToWhitelist(const char *domain) {
 
 bool removeFromWhitelist(const char *domain) {
     String d(domain);
+    d.trim();
+    d.toLowerCase();
     for (auto it = g_whitelist.begin(); it != g_whitelist.end(); ++it) {
-        if (it->equalsIgnoreCase(d)) {
+        if (*it == d) {
             g_whitelist.erase(it);
             _writeListFile(WHITELIST_FILE, g_whitelist);
             return true;
@@ -98,8 +104,10 @@ bool removeFromWhitelist(const char *domain) {
 
 bool addToBlacklist(const char *domain) {
     String d(domain);
+    d.trim();
+    d.toLowerCase();
     for (const auto &e : g_blacklist)
-        if (e.equalsIgnoreCase(d)) return false; // duplicate
+        if (e == d) return false; // duplicate
     g_blacklist.push_back(d);
     _writeListFile(BLACKLIST_FILE, g_blacklist);
     return true;
@@ -107,8 +115,10 @@ bool addToBlacklist(const char *domain) {
 
 bool removeFromBlacklist(const char *domain) {
     String d(domain);
+    d.trim();
+    d.toLowerCase();
     for (auto it = g_blacklist.begin(); it != g_blacklist.end(); ++it) {
-        if (it->equalsIgnoreCase(d)) {
+        if (*it == d) {
             g_blacklist.erase(it);
             _writeListFile(BLACKLIST_FILE, g_blacklist);
             return true;
