@@ -101,19 +101,108 @@ bool endsWith(const char* str, const char* suffix) {
            (strLen == suffixLen || str[strLen - suffixLen - 1] == '.');
 }
 
-bool isBigTech(const char* domain) {
+bool isEssentialGoogle(const char* domain) {
     const char* targets[] = {
-        // Google Ads & Analytics
-        "doubleclick.net", "googleadservices.com", "googlesyndication.com",
-        "google-analytics.com", "admob.com", "2mdn.net",
-        // Apple Ads & Metrics
-        "iad.apple.com", "metrics.apple.com", "securemetrics.apple.com",
-        // Microsoft / Bing Ads
-        "ads1.msn.com", "rad.msn.com", "bat.bing.com", "bingads.microsoft.com",
-        // Amazon Ads & Telemetry
-        "amazon-adsystem.com", "a-mo.net", "fls-na.amazon.com",
-        // Meta / Facebook Tracking
-        "connect.facebook.net", "pixel.facebook.com", "graph.facebook.com"
+        "google.com", "googleapis.com", "gstatic.com", "youtube.com", "googlevideo.com",
+        "gmail.com", "googleusercontent.com", "g.co", "ggpht.com"
+    };
+    for (const char* t : targets) {
+        if (endsWith(domain, t)) return true;
+    }
+    return false;
+}
+
+bool isApple(const char* domain) {
+    const char* targets[] = {
+        "apple.com", "icloud.com", "mzstatic.com", "me.com", "mac.com", "apple-cloudkit.com"
+    };
+    for (const char* t : targets) {
+        if (endsWith(domain, t)) return true;
+    }
+    return false;
+}
+
+bool isAppleTracking(const char* domain) {
+    const char* targets[] = {
+        "metrics.apple.com", "securemetrics.apple.com", "iad.apple.com", 
+        "iadsdk.apple.com", "api-adservices.apple.com", "metrics.icloud.com", "metrics.mzstatic.com",
+        "triadsdk.apple.com", "xp.apple.com"
+    };
+    for (const char* t : targets) {
+        if (endsWith(domain, t)) return true;
+    }
+    return false;
+}
+
+bool isGoogleTracking(const char* domain) {
+    const char* targets[] = {
+        "doubleclick.net", "google-analytics.com", "googleadservices.com",
+        "googlesyndication.com", "admob.com", "2mdn.net", "googletagservices.com",
+        "googletagmanager.com", "analytics.google.com", "click.googleanalytics.com",
+        "tagmanager.google.com", "dai.google.com", "adservice.google.com"
+    };
+    for (const char* t : targets) {
+        if (endsWith(domain, t)) return true;
+    }
+    return false;
+}
+
+bool isStrictTracker(const char* domain) {
+    const char* targets[] = {
+        "amazon-adsystem.com", "a-mo.net", "fls-na.amazon.com", "device-metrics-us.amazon.com",
+        "device-metrics-us-2.amazon.com", "mads-eu.amazon.com", "connect.facebook.net", 
+        "pixel.facebook.com", "graph.facebook.com", "an.facebook.com", "tr.facebook.com", 
+        "graph.instagram.com", "i.instagram.com", "ads1.msn.com", "rad.msn.com", "bat.bing.com", 
+        "bingads.microsoft.com", "ads.microsoft.com", "vortex.data.microsoft.com", 
+        "telemetry.microsoft.com", "watson.telemetry.microsoft.com", "browser.events.data.microsoft.com", 
+        "c.bing.com", "media.net", "adcolony.com", "criteo.com", "criteo.net", "taboola.com", 
+        "outbrain.com", "mgid.com", "propellerads.com", "onclickads.net", "applovin.com", 
+        "vungle.com", "liftoff.io", "adnxs.com", "pubmatic.com", "openx.net", "rubiconproject.com", 
+        "spotxchange.com", "indexexchange.com", "casalemedia.com", "htlbid.com", 
+        "unityads.unity3d.com", "yandex.ru", "yandex.net", "supersonicads.com", "chartboost.com", 
+        "fyber.com", "inmobi.com", "ironsource.mobi", "kargo.com", "adsrvr.org", "adroll.com", 
+        "smartyads.com", "ad.gt", "contextweb.com", "sharethrough.com", "pangleglobal.com", 
+        "stackadapt.com", "stickyadstv.com", "doubleverify.com", "3lift.com", "adsafeprotected.com", 
+        "sonobi.com", "gumgum.com", "teads.tv", "insightexpressai.com", "ads.yahoo.com", 
+        "analytics.yahoo.com", "geo.yahoo.com", "udc.yahoo.com", "advertising.yahoo.com", 
+        "gemini.yahoo.com", "adtech.yahooinc.com", "adobe.io", "omtrdc.net", "metrics.adobe.com", 
+        "clarity.ms", "hotjar.com", "hotjar.io", "luckyorange.com", "luckyorange.net", 
+        "mouseflow.com", "heapanalytics.com", "mixpanel.com", "amplitude.com", "segment.com", 
+        "segment.io", "fullstory.com", "quantserve.com", "quantcast.com", "scorecardresearch.com", 
+        "cloudflareinsights.com", "posthog.com", "rudderstack.com", "rudderlabs.com", 
+        "snowplowanalytics.com", "fingerprintjs.com", "fpjs.io", "bluekai.com", "onetag-sys.com", 
+        "pippio.com", "siftscience.com", "id5-sync.com", "mathtag.com", "permutive.com", 
+        "crwdentrl.net", "bidswitch.net", "everesttech.net", "uidapi.com", "rledn.com", 
+        "ricdn.com", "appsflyer.com", "adjust.com", "branch.io", "bnc.lt", "kochava.com", 
+        "singular.net", "bugsnag.com", "sentry-cdn.com", "getsentry.com", "sentry.io", 
+        "nr-data.net", "newrelic.com", "browser-intake-datadoghq.com", "lr-ingest.com", 
+        "coinimp.com", "webminepool.com", "minero.cc", "mineralt.io", "monerominer.rocks", 
+        "popads.net", "popcash.net", "popmyads.com", "clickadu.com", "trafficjunky.net", 
+        "exoclick.com", "juicyads.com", "sc-static.net", "tr.snapchat.com", "ads.snapchat.com", 
+        "sc-analytics.appspot.com", "ads.linkedin.com", "pointdrive.linkedin.com", 
+        "snap.licdn.com", "ads-twitter.com", "ads-api.twitter.com", "ads-api.x.com", 
+        "analytics.twitter.com", "analytics.x.com", "ads.x.com", "events.reddit.com", 
+        "events.redditmedia.com", "pixel.redditmedia.com", "d.reddit.com", "ads.pinterest.com", 
+        "ct.pinterest.com", "log.pinterest.com", "analytics.pinterest.com", "trk.pinterest.com", 
+        "widgets.pinterest.com", "ads-api.tiktok.com", "analytics.tiktok.com", "ads-sg.tiktok.com", 
+        "business-api.tiktok.com", "ads.tiktok.com", "byteoversea.com", "tiktokv.com", 
+        "pixel.quora.com", "gevents.quora.com", "iot-logser.realme.com", "realmemobile.com", 
+        "oppomobile.com", "oneplus.cn", "oneplus.net", "ad.xiaomi.com", "mistat.xiaomi.com", 
+        "hicloud.com", "miui.com", "ads.huawei.com", "samsungads.com", "smetrics.samsung.com", 
+        "nmetrics.samsung.com", "samsunghealth.com", "adlog.vivo.com", "ads-api.vivo.com", 
+        "a.lenovo.com", "lgsmartad.com", "lgappstv.com", "lge.com", "yumenetworks.com", 
+        "smartclip.net", "smartclip.com", "logs.roku.com", "ads.roku.com", "amoeba.web.roku.com", 
+        "ads.vizio.com", "tvinteractive.tv", "tvpixel.com", "cookielaw.org", "onetrust.com", 
+        "cookiebot.com", "trustarc.com", "privacy-center.org", "privacy-mgmt.com", 
+        "usercentrics.eu", "cmp.inmobi.com", "cmp.osano.com", "anrdoezrs.net", 
+        "partnerstack.com", "dpbolvw.net", "tkglhce.com", "refersion.com", "shareasale.com", 
+        "pepperjamnetwork.com", "linksynergy.com", "skimresources.com", "impactradius-event.com", 
+        "redirectingat.com", "awin1.com", "zenaps.com", "prf.hn", "viglink.com", 
+        "optimizely.com", "dynamicyield.com", "launchdarkly.com", "list-manage.com", 
+        "hubspot.com", "marketo.net", "mailchimp.com", "intercom.io", "driftt.com", 
+        "braze.com", "onesignal.com", "klaviyo.com", "customer.io", "jwpsrv.com", 
+        "jwpedn.com", "jwpltx.com", "fwmrm.net", "brightcove.com", "innovid.com", 
+        "connatix.com", "tremorhub.com"
     };
     for (const char* t : targets) {
         if (endsWith(domain, t)) return true;
@@ -138,8 +227,18 @@ bool isDomainBlocked(const char *domain)
     // Mode: MINIMAL — block ONLY custom blacklist (ignore blocklist.bin)
     if (g_blockMode == BlockMode::MINIMAL) return false;
 
-    // Mode: STRICT — block Big Tech before falling through to standard blocklist
-    if (g_blockMode == BlockMode::STRICT && isBigTech(domain)) return true;
+    // 3. Strict Mode explicitly blocks all known major trackers
+    if (g_blockMode == BlockMode::STRICT) {
+        if (isAppleTracking(domain)) return true;
+        if (isGoogleTracking(domain)) return true;
+        if (isStrictTracker(domain)) return true;
+    }
+
+    // 4. Ensure Essential services are never accidentally blocked (Normal & Strict modes)
+    if (g_blockMode == BlockMode::NORMAL || g_blockMode == BlockMode::STRICT) {
+        if (isApple(domain)) return false; // Apple full unblock
+        if (isEssentialGoogle(domain)) return false; // Google essential unblock
+    }
 
     // 3. LRU cache — avoids flash seeks for repeated domains
     uint64_t fullHash = fnv1a_40(domain, strlen(domain));
