@@ -1079,7 +1079,16 @@ function connectWS(){
   ws.onopen=()=>{ document.getElementById('wsDot').className='ws-dot ok'; wsRetry=0; };
   ws.onclose=()=>{ document.getElementById('wsDot').className='ws-dot err';
     setTimeout(connectWS,Math.min(1000*(++wsRetry),8000)); };
-  ws.onmessage=(e)=>{ try{ onQueryEvent(JSON.parse(e.data)); }catch(_){} };
+  ws.onmessage=(e)=>{ 
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === 'stats' || data.total !== undefined) {
+        onStatsEvent(data);
+      } else {
+        onQueryEvent(data);
+      }
+    } catch(_){} 
+  };
 }
 
 // ─── Live feed & Scroll Freeze ─────────────────────────────────────────────────
@@ -1419,13 +1428,9 @@ setInterval(() => {
   }
 }, 1000);
 
-// ─── Stats polling (Synchronized 1000ms heartbeat) ───────────────────────────
-async function pollStats(){
+// ─── WebSocket Stats Event Handler ───────────────────────────────────────────
+function onStatsEvent(s) {
   try{
-    const r=await fetch('/api/stats');
-    if(!r.ok) return;
-    const s=await r.json();
-
     document.getElementById('myIp').textContent=s.ip;
     liveTotal = s.total;
     liveBlocked = s.blocked;
@@ -1469,12 +1474,10 @@ async function pollStats(){
       ub.style.display='';
       ub.textContent='⬆ '+(s.usingFallback?'↩ ':'')+s.upstream;
       ub.className='hdr-badge'+(s.usingFallback?' warn':'');
-      highlightDnsBtn(s.upstream);
+      if (typeof highlightDnsBtn === 'function') highlightDnsBtn(s.upstream);
     }
   }catch(_){}
 }
-setInterval(pollStats, 1000);
-pollStats();
 
 // ─── RTT Sparkline (pure SVG) ────────────────────────────────────────────────
 function renderSparkline(hist){

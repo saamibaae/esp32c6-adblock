@@ -108,6 +108,65 @@ void broadcastQuery(const char *domain, uint16_t qtype, bool blocked, const char
     webSocket.textAll(buf);
 }
 
+// ── Broadcast stats to all WebSocket clients ─────────────────────────────────
+void broadcastStats() {
+    if (webSocket.count() == 0) return;
+
+    char rttHistBuf[256] = "[";
+    int  rttHistLen = 1;
+    const int cnt  = g_stats.rttHistCount;
+    const int head = g_stats.rttHistHead;
+    for (int i = 0; i < cnt; i++) {
+        int idx = (head - cnt + i + 30) % 30;
+        char tmp[8];
+        int w = snprintf(tmp, sizeof(tmp), "%s%u",
+                         i > 0 ? "," : "", g_stats.rttHistory[idx]);
+        if (rttHistLen + w < (int)sizeof(rttHistBuf) - 2) {
+            memcpy(rttHistBuf + rttHistLen, tmp, w);
+            rttHistLen += w;
+        }
+    }
+    rttHistBuf[rttHistLen++] = ']';
+    rttHistBuf[rttHistLen]   = '\0';
+
+    int activePending = 0;
+    for (int i = 0; i < MAX_PENDING; i++)
+        if (pendingQueries[i].active) activePending++;
+
+    const int8_t      rssi    = WiFi.RSSI();
+    const char* const rssiTag = rssi >= -50 ? "Best"
+                              : rssi >= -65 ? "Good"
+                              : rssi >= -80 ? "Medium" : "Bad";
+
+    const uint32_t safeMin = (g_stats.minRtt == UINT32_MAX) ? 0 : g_stats.minRtt;
+
+    char buf[896];
+    snprintf(buf, sizeof(buf),
+        R"({"type":"stats","total":%lu,"blocked":%lu,"pct":%lu,"uptime":%lu,"heap":%lu,)"
+        R"("ip":"%s","hashes":%lu,"cacheHits":%lu,"ssid":"%s","rssi":%d,)"
+        R"("rssiTag":"%s","minRtt":%lu,"avgRtt":%lu,"maxRtt":%lu,)"
+        R"("rttHist":%s,"upstream":"%s","usingFallback":%s,"pending":%d})",
+        (unsigned long)g_stats.totalQueries,
+        (unsigned long)g_stats.blockedQueries,
+        (unsigned long)g_stats.blockedPct(),
+        (unsigned long)g_stats.uptimeSecs(),
+        (unsigned long)ESP.getFreeHeap(),
+        WiFi.localIP().toString().c_str(),
+        (unsigned long)totalHashes,
+        (unsigned long)g_stats.cacheHits,
+        WiFi.SSID().c_str(),
+        rssi,
+        rssiTag,
+        (unsigned long)safeMin,
+        (unsigned long)g_stats.avgRtt(),
+        (unsigned long)g_stats.maxRtt,
+        rttHistBuf,
+        currentUpstream().toString().c_str(),
+        g_usingFallback ? "true" : "false",
+        activePending);
+    webSocket.textAll(buf);
+}
+
 // ── Web server setup ──────────────────────────────────────────────────────────
 void webUiSetup() {
     // ── WebSocket ────────────────────────────────────────────────────────────

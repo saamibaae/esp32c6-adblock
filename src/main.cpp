@@ -1,4 +1,4 @@
-#include <Arduino.h>
+/#include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <LittleFS.h>
@@ -41,6 +41,7 @@ WiFiUDP upstreamClient;
 
 unsigned long lastHeartbeat        = 0;
 unsigned long lastReconnectAttempt = 0;
+unsigned long lastStatsBroadcast   = 0;
 
 // Dual-upstream status
 bool g_usingFallback = false;
@@ -658,6 +659,14 @@ void loop()
     webUiLoop();
 
     const uint32_t now = millis();
+
+    // ── Stats Broadcast (every 500ms) ────────────────────────────────────────
+    if (now - lastStatsBroadcast >= 500) {
+        lastStatsBroadcast = now;
+        if (WiFi.status() == WL_CONNECTED) {
+            broadcastStats();
+        }
+    }
 
     // ── Heartbeat (every 4 s) ─────────────────────────────────────────────────
     if (now - lastHeartbeat >= 4000) {
