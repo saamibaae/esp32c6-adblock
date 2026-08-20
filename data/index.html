@@ -2,8 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DNS Sinkhole · ESP32-C6</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#070c18">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>🛡️ DNS Sinkhole · ESP32-C6</title>
+<link rel="manifest" href="/manifest.json">
+<link id="siteFavicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -15,23 +20,23 @@
   --radius:12px;--gap:16px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;padding-bottom:48px}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,sans-serif;min-height:100vh;padding-bottom:70px}
 a{color:var(--accent);text-decoration:none}
 
 /* ── Header ───────────────────────────────────────────────────────────── */
 header{
   background:linear-gradient(135deg,#0a1628 0%,#0f1e3d 50%,#0a1628 100%);
-  border-bottom:1px solid var(--border);padding:16px 24px;
+  border-bottom:1px solid var(--border);padding:14px 20px;
   display:flex;align-items:center;justify-content:space-between;
   position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);
   flex-wrap:wrap;gap:10px
 }
-.logo{display:flex;align-items:center;gap:10px;font-size:1.2rem;font-weight:800;letter-spacing:-0.5px}
+.logo{display:flex;align-items:center;gap:10px;font-size:1.15rem;font-weight:800;letter-spacing:-0.5px}
 .logo span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hdr-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .hdr-badge{
   background:var(--card);border:1px solid var(--border);border-radius:8px;
-  padding:5px 11px;font-size:.8rem;font-family:'Courier New',monospace;
+  padding:4px 10px;font-size:.78rem;font-family:'Courier New',monospace;
   color:var(--accent);white-space:nowrap;transition:color .3s
 }
 .hdr-badge.warn{color:var(--yellow)}
@@ -40,34 +45,63 @@ header{
 .ws-dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}
 .ws-dot.err{background:var(--red);box-shadow:0 0 8px var(--red)}
 
+.icon-btn{background:none;border:1px solid var(--border);border-radius:8px;color:var(--muted2);padding:4px 9px;font-size:.8rem;cursor:pointer;transition:.2s}
+.icon-btn:hover{color:var(--text);border-color:var(--accent)}
+
 /* ── Layout ───────────────────────────────────────────────────────────── */
-.container{max-width:1280px;margin:0 auto;padding:24px var(--gap)}
+.container{max-width:1280px;margin:0 auto;padding:20px var(--gap)}
+
+/* ── Snooze Banner ────────────────────────────────────────────────────── */
+.snooze-banner{
+  background:linear-gradient(135deg,rgba(251,191,36,.15),rgba(248,113,113,.15));
+  border:1px solid rgba(251,191,36,.4);border-radius:var(--radius);
+  padding:12px 18px;margin-bottom:16px;display:none;
+  align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+  animation:slideIn .3s ease-out
+}
+.snooze-text{font-size:.84rem;font-weight:700;color:var(--yellow);display:flex;align-items:center;gap:8px}
+.btn-cancel-snooze{
+  background:rgba(251,191,36,.2);border:1px solid rgba(251,191,36,.5);
+  color:var(--yellow);border-radius:6px;padding:5px 12px;font-size:.76rem;
+  font-weight:700;cursor:pointer;transition:.15s
+}
+.btn-cancel-snooze:hover{background:rgba(251,191,36,.35);color:#fff}
 
 /* ── Mode selector ────────────────────────────────────────────────────── */
 .mode-sel{
   background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--radius);padding:14px 20px;margin-bottom:20px;
+  border-radius:var(--radius);padding:14px 18px;margin-bottom:20px;
   display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px
 }
-.mode-title{font-size:.9rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px}
+.mode-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.mode-title{font-size:.88rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px}
 .mode-title .shield{display:inline-block;transition:transform .3s}
 .mode-title .shield.pulse{animation:shieldPulse .4s ease-out}
 @keyframes shieldPulse{0%{transform:scale(1)}50%{transform:scale(1.25)}100%{transform:scale(1)}}
 .mode-opts{display:flex;background:var(--card);border-radius:8px;padding:4px;border:1px solid var(--border)}
-.mode-opt{background:transparent;border:none;color:var(--muted);padding:6px 14px;border-radius:6px;font-size:.8rem;font-weight:600;cursor:pointer;transition:.2s}
+.mode-opt{background:transparent;border:none;color:var(--muted);padding:6px 13px;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s}
 .mode-opt:hover{color:var(--text)}
 .mode-opt.active{background:var(--accent);color:#0a0f1e}
 .mode-opt.active-0{background:var(--muted);color:#0a0f1e}
 .mode-opt.active-1{background:var(--green);color:#0a0f1e}
 .mode-opt.active-3{background:#fb923c;color:#0a0f1e}
 .mode-opt.active-4{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
-.mode-desc{font-size:.8rem;color:var(--muted2);width:100%;margin-top:2px}
+
+.snooze-btns{display:flex;align-items:center;gap:6px}
+.snooze-btn{
+  background:var(--card);border:1px solid var(--border);border-radius:7px;
+  color:var(--muted2);padding:6px 10px;font-size:.74rem;font-weight:600;
+  cursor:pointer;transition:.15s;white-space:nowrap
+}
+.snooze-btn:hover{border-color:var(--yellow);color:var(--yellow);background:rgba(251,191,36,.08)}
+
+.mode-desc{font-size:.78rem;color:var(--muted2);width:100%;margin-top:2px}
 
 /* ── Stats grid ───────────────────────────────────────────────────────── */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:var(--gap);margin-bottom:20px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:var(--gap);margin-bottom:20px}
 .stat-card{
   background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
-  padding:18px 16px;position:relative;overflow:hidden;
+  padding:16px 14px;position:relative;overflow:hidden;
   transition:transform .2s,border-color .3s;cursor:default
 }
 .stat-card:hover{transform:translateY(-2px);border-color:var(--accent)}
@@ -76,8 +110,10 @@ header{
 .stat-card.green::before{background:linear-gradient(90deg,var(--green),var(--accent))}
 .stat-card.purple::before{background:linear-gradient(90deg,var(--accent2),#c084fc)}
 .stat-card.yellow::before{background:linear-gradient(90deg,var(--yellow),#fb923c)}
+.stat-card.cyan::before{background:linear-gradient(90deg,var(--accent),#38bdf8)}
+
 .stat-val{
-  font-size:1.75rem;font-weight:800;letter-spacing:-1px;line-height:1.1;margin-bottom:3px;
+  font-size:1.65rem;font-weight:800;letter-spacing:-1px;line-height:1.1;margin-bottom:3px;
   background:linear-gradient(135deg,var(--text),var(--muted2));-webkit-background-clip:text;
   -webkit-text-fill-color:transparent;background-clip:text;transition:opacity .15s
 }
@@ -85,145 +121,254 @@ header{
 .stat-val.v-green{background:linear-gradient(135deg,var(--green),var(--accent));-webkit-background-clip:text;background-clip:text}
 .stat-val.v-purple{background:linear-gradient(135deg,var(--accent2),#c084fc);-webkit-background-clip:text;background-clip:text}
 .stat-val.v-yellow{background:linear-gradient(135deg,var(--yellow),#fb923c);-webkit-background-clip:text;background-clip:text}
-.stat-lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
-.stat-sub{font-size:.7rem;color:var(--muted);margin-top:3px}
+.stat-val.v-cyan{background:linear-gradient(135deg,var(--accent),#38bdf8);-webkit-background-clip:text;background-clip:text}
+
+.stat-lbl{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+.stat-sub{font-size:.68rem;color:var(--muted);margin-top:3px}
+
+/* ── Top Domains Leaderboard ──────────────────────────────────────────── */
+.top-domains-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--gap);margin-bottom:20px}
+.top-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:15px}
+.top-card-header{font-size:.8rem;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.top-list{display:flex;flex-direction:column;gap:8px}
+.top-item{display:flex;flex-direction:column;gap:3px}
+.top-row{display:flex;justify-content:space-between;font-size:.78rem;font-family:'Courier New',monospace}
+.top-domain{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.top-count{color:var(--muted2);font-weight:700}
+.top-bar-bg{background:var(--surface);height:4px;border-radius:2px;overflow:hidden}
+.top-bar{height:100%;border-radius:2px;transition:width .4s}
+.empty-top{font-size:.76rem;color:var(--muted);padding:8px 0;text-align:center}
+
+/* ── Query Type Distribution Breakdown ────────────────────────────────── */
+.type-dist-wrap{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;margin-bottom:20px}
+.type-dist-header{display:flex;justify-content:space-between;align-items:center;font-size:.8rem;font-weight:700;color:var(--muted2);text-transform:uppercase;letter-spacing:.7px;margin-bottom:10px}
+.type-bar-multi{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--surface);margin-bottom:10px}
+.type-seg{height:100%;transition:width .4s}
+.type-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.74rem}
+.type-leg-item{display:flex;align-items:center;gap:5px;color:var(--muted2)}
+.type-leg-dot{width:7px;height:7px;border-radius:50%}
 
 /* ── RTT Sparkline ────────────────────────────────────────────────────── */
 .spark-panel{
   background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
-  padding:14px 20px;margin-bottom:20px;
+  padding:14px 18px;margin-bottom:20px;
 }
 .spark-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.spark-title{font-size:.8rem;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.7px}
-.spark-labels{display:flex;gap:16px;font-size:.72rem;color:var(--muted)}
+.spark-title{font-size:.78rem;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.7px}
+.spark-labels{display:flex;gap:14px;font-size:.7rem;color:var(--muted)}
 .spark-label span{color:var(--text);font-weight:600}
-#rttSpark{width:100%;height:56px;display:block;overflow:visible}
-.spark-footer{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);margin-top:4px}
+#rttSpark{width:100%;height:52px;display:block;overflow:visible}
+.spark-footer{display:flex;justify-content:space-between;font-size:.66rem;color:var(--muted);margin-top:4px}
 
 /* ── Panel ────────────────────────────────────────────────────────────── */
 .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
-.panel-header{display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:.9rem}
-.panel-header .badge{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.73rem;color:var(--muted2)}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--border);font-weight:600;font-size:.88rem}
+.panel-header .badge{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.72rem;color:var(--muted2)}
 
 /* ── Feed controls ────────────────────────────────────────────────────── */
 .feed-controls{
-  display:flex;align-items:center;gap:8px;padding:10px 16px;
+  display:flex;align-items:center;gap:7px;padding:10px 14px;
   border-bottom:1px solid var(--border);flex-wrap:wrap
 }
 .feed-filter{
-  flex:1;min-width:140px;background:var(--surface);border:1px solid var(--border);
-  border-radius:7px;padding:7px 12px;color:var(--text);font-size:.82rem;
+  flex:1;min-width:160px;background:var(--surface);border:1px solid var(--border);
+  border-radius:7px;padding:7px 11px;color:var(--text);font-size:.8rem;
   outline:none;font-family:'Inter',sans-serif;transition:border-color .2s
 }
 .feed-filter:focus{border-color:var(--accent)}
 .feed-filter::placeholder{color:var(--muted)}
 .type-btns{display:flex;background:var(--surface);border-radius:7px;padding:3px;border:1px solid var(--border);gap:2px}
-.type-btn{background:transparent;border:none;color:var(--muted);padding:5px 12px;border-radius:5px;font-size:.75rem;font-weight:600;cursor:pointer;transition:.15s}
+.type-btn{background:transparent;border:none;color:var(--muted);padding:4px 10px;border-radius:5px;font-size:.73rem;font-weight:600;cursor:pointer;transition:.15s}
 .type-btn:hover{color:var(--text)}
 .type-btn.active{background:var(--accent);color:#0a0f1e}
 .type-btn.active-blocked{background:var(--red);color:#fff}
 .type-btn.active-allowed{background:var(--green);color:#0a0f1e}
-.pause-btn{
+
+.tool-btn{
   background:var(--surface);border:1px solid var(--border);border-radius:7px;
-  color:var(--muted2);padding:6px 13px;font-size:.78rem;font-weight:600;
+  color:var(--muted2);padding:5px 10px;font-size:.74rem;font-weight:600;
   cursor:pointer;transition:.2s;white-space:nowrap
 }
-.pause-btn:hover{color:var(--text);border-color:var(--accent)}
-.pause-btn.paused{background:rgba(251,191,36,.12);color:var(--yellow);border-color:rgba(251,191,36,.4)}
+.tool-btn:hover{color:var(--text);border-color:var(--accent)}
+.tool-btn.paused{background:rgba(251,191,36,.12);color:var(--yellow);border-color:rgba(251,191,36,.4)}
 
 /* ── Feed table ───────────────────────────────────────────────────────── */
-.feed-wrap{overflow-x:auto;max-height:400px;overflow-y:auto}
+.feed-wrap{position:relative;overflow-x:auto;max-height:400px;overflow-y:auto}
 .feed-wrap::-webkit-scrollbar{width:6px;height:6px}
 .feed-wrap::-webkit-scrollbar-track{background:transparent}
 .feed-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-table{width:100%;border-collapse:collapse;font-size:.84rem}
+table{width:100%;border-collapse:collapse;font-size:.82rem}
 thead th{
-  padding:9px 16px;text-align:left;font-size:.7rem;color:var(--muted);
+  padding:9px 14px;text-align:left;font-size:.68rem;color:var(--muted);
   text-transform:uppercase;letter-spacing:.8px;font-weight:600;
-  position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--border)
+  position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--border);z-index:2;
 }
-tbody tr{border-bottom:1px solid rgba(30,45,74,.5);transition:background .15s}
+tbody tr{border-bottom:1px solid rgba(30,45,74,.5);transition:background .15s;position:relative}
 tbody tr:hover{background:rgba(34,211,238,.04)}
 tbody tr.new-row{animation:slideIn .25s ease-out}
-tbody tr.row-blocked td:first-child{border-left:3px solid var(--red);padding-left:13px}
-tbody tr.row-allowed td:first-child{border-left:3px solid rgba(74,222,128,.4);padding-left:13px}
+tbody tr.row-blocked td:first-child{border-left:3px solid var(--red);padding-left:11px}
+tbody tr.row-allowed td:first-child{border-left:3px solid rgba(74,222,128,.4);padding-left:11px}
 @keyframes slideIn{from{opacity:0;transform:translateX(6px)}to{opacity:1;transform:translateX(0)}}
-td{padding:8px 16px;vertical-align:middle}
-.td-domain{font-family:'Courier New',monospace;font-size:.81rem;color:var(--text);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.td-type{font-size:.74rem;color:var(--muted2);font-family:monospace}
-.pill{display:inline-flex;align-items:center;gap:4px;font-size:.7rem;font-weight:700;border-radius:20px;padding:3px 9px;letter-spacing:.4px}
+td{padding:8px 14px;vertical-align:middle}
+
+.td-domain{font-family:'Courier New',monospace;font-size:.8rem;color:var(--text);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.copyable{cursor:pointer;transition:color .15s}
+.copyable:hover{color:var(--accent);text-decoration:underline}
+
+.client-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  background:rgba(129,140,248,.12);border:1px solid rgba(129,140,248,.25);
+  border-radius:6px;padding:2px 7px;font-size:.72rem;color:var(--accent2);
+  cursor:pointer;transition:.15s;white-space:nowrap
+}
+.client-badge:hover{background:rgba(129,140,248,.22);border-color:var(--accent2);color:#fff}
+
+.td-type{font-size:.72rem;color:var(--muted2);font-family:monospace}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:.68rem;font-weight:700;border-radius:20px;padding:3px 8px;letter-spacing:.4px}
 .pill-blocked{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.3)}
 .pill-allowed{background:rgba(74,222,128,.1);color:var(--green);border:1px solid rgba(74,222,128,.22)}
-.td-time{font-size:.73rem;color:var(--muted);white-space:nowrap}
-.empty-row td{text-align:center;color:var(--muted);padding:36px;font-size:.85rem}
+.td-time{font-size:.71rem;color:var(--muted);white-space:nowrap}
+.empty-row td{text-align:center;color:var(--muted);padding:32px;font-size:.82rem}
+
+/* ── Inline Row Actions ──────────────────────────────────────────────── */
+.row-actions{display:inline-flex;align-items:center;gap:4px;margin-left:8px;opacity:0.25;transition:opacity .15s}
+tr:hover .row-actions{opacity:1}
+.btn-act{
+  background:var(--surface);border:1px solid var(--border);border-radius:5px;
+  padding:2px 6px;font-size:.66rem;font-weight:700;cursor:pointer;transition:.15s;
+  color:var(--muted2);white-space:nowrap;line-height:1.2;
+}
+.btn-act.act-wl:hover{border-color:var(--green);color:var(--green);background:rgba(74,222,128,.15)}
+.btn-act.act-bl:hover{border-color:var(--red);color:var(--red);background:rgba(248,113,113,.15)}
+
+/* ── Floating New Queries Pill ────────────────────────────────────────── */
+.new-queries-pill{
+  position:sticky;bottom:12px;left:50%;transform:translateX(-50%);
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  color:#0a0f1e;font-size:.74rem;font-weight:800;padding:5px 14px;
+  border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,.6);
+  cursor:pointer;display:none;z-index:20;animation:bouncePill .25s ease-out;
+}
+@keyframes bouncePill{0%{transform:translate(-50%,8px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}
 
 /* ── Tabs ─────────────────────────────────────────────────────────────── */
 .tabs{display:flex;gap:2px;padding:6px 6px 0;border-bottom:1px solid var(--border)}
-.tab-btn{background:none;border:none;color:var(--muted);padding:9px 18px;cursor:pointer;font-size:.84rem;font-weight:500;border-radius:8px 8px 0 0;transition:.15s;border:1px solid transparent;border-bottom:none;position:relative;top:1px}
+.tab-btn{background:none;border:none;color:var(--muted);padding:9px 16px;cursor:pointer;font-size:.82rem;font-weight:500;border-radius:8px 8px 0 0;transition:.15s;border:1px solid transparent;border-bottom:none;position:relative;top:1px}
 .tab-btn:hover{color:var(--text);background:rgba(255,255,255,.04)}
 .tab-btn.active{color:var(--accent);background:var(--card);border-color:var(--border);font-weight:600}
-.tab-pane{display:none;padding:20px}
+.tab-pane{display:none;padding:18px}
 .tab-pane.active{display:block}
 
 /* ── Lists ────────────────────────────────────────────────────────────── */
-.add-form{display:flex;gap:8px;margin-bottom:16px}
-.add-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 13px;color:var(--text);font-size:.875rem;outline:none;font-family:'Courier New',monospace;transition:border-color .2s}
+.add-form{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.add-form input{flex:1;min-width:180px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:.84rem;outline:none;font-family:'Courier New',monospace;transition:border-color .2s}
 .add-form input:focus{border-color:var(--accent)}
 .add-form input::placeholder{color:var(--muted)}
-.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#0a0f1e;padding:9px 18px;font-size:.84rem;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap}
+.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#0a0f1e;padding:8px 16px;font-size:.82rem;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap}
 .btn:hover{opacity:.85;transform:translateY(-1px)}
 .btn:active{transform:translateY(0)}
-.btn-sm{padding:6px 13px;font-size:.76rem;border-radius:7px}
+.btn-sm{padding:6px 12px;font-size:.74rem;border-radius:7px}
+.btn-secondary{background:var(--surface);border:1px solid var(--border);color:var(--muted2)}
+.btn-secondary:hover{border-color:var(--accent);color:var(--text)}
 .btn-danger{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
-.list-entries{display:flex;flex-wrap:wrap;gap:8px;min-height:40px}
-.domain-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:.79rem;font-family:'Courier New',monospace;color:var(--muted2)}
+.list-entries{display:flex;flex-wrap:wrap;gap:8px;min-height:36px}
+.domain-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:4px 9px;font-size:.77rem;font-family:'Courier New',monospace;color:var(--muted2)}
 .chip-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;padding:0;transition:.15s}
 .chip-del:hover{color:var(--red)}
-.empty-list{color:var(--muted);font-size:.84rem;padding:8px 0}
+.empty-list{color:var(--muted);font-size:.82rem;padding:8px 0}
 
 /* ── Clients table ────────────────────────────────────────────────────── */
 .clients-wrap{overflow-x:auto}
-.clients-wrap table tbody tr td:first-child{border-left:none;padding-left:16px}
+.clients-wrap table tbody tr{cursor:pointer}
+.clients-wrap table tbody tr td:first-child{border-left:none;padding-left:14px}
 .pct-bar-wrap{display:flex;align-items:center;gap:8px}
 .pct-bar-bg{flex:1;background:var(--surface);border-radius:4px;height:5px;overflow:hidden}
 .pct-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--red),#fb923c);transition:width .4s}
-.pct-text{font-size:.75rem;color:var(--muted2);white-space:nowrap;min-width:36px;text-align:right}
+.pct-text{font-size:.73rem;color:var(--muted2);white-space:nowrap;min-width:34px;text-align:right}
+
+.client-alias-edit{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.73rem;margin-left:6px;transition:color .15s}
+.client-alias-edit:hover{color:var(--accent)}
 
 /* ── Maintenance ──────────────────────────────────────────────────────── */
-.maint-section{margin-bottom:28px}
-.maint-section h3{font-size:.84rem;font-weight:700;margin-bottom:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.6px}
+.maint-section{margin-bottom:24px}
+.maint-section h3{font-size:.82rem;font-weight:700;margin-bottom:9px;color:var(--muted2);text-transform:uppercase;letter-spacing:.6px}
 .url-form{display:flex;gap:8px}
-.url-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 13px;color:var(--text);font-size:.84rem;outline:none;transition:border-color .2s}
+.url-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:.82rem;outline:none;transition:border-color .2s}
 .url-form input:focus{border-color:var(--accent)}
 .ota-bar-wrap{margin-top:10px;display:none}
 .ota-bar-bg{background:var(--surface);border-radius:6px;height:7px;overflow:hidden;border:1px solid var(--border)}
 .ota-bar{background:linear-gradient(90deg,var(--accent),var(--accent2));height:100%;border-radius:6px;transition:width .4s;width:0%}
-.ota-msg{font-size:.79rem;color:var(--muted);margin-top:6px}
-.upload-label{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:2px dashed var(--border);border-radius:10px;padding:14px 22px;cursor:pointer;font-size:.84rem;color:var(--muted2);transition:.2s}
+.ota-msg{font-size:.78rem;color:var(--muted);margin-top:6px}
+.upload-label{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:2px dashed var(--border);border-radius:10px;padding:12px 20px;cursor:pointer;font-size:.82rem;color:var(--muted2);transition:.2s}
 .upload-label:hover{border-color:var(--accent);color:var(--text)}
 .upload-label input{display:none}
-.info-box{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.2);border-radius:10px;padding:13px 17px;font-size:.81rem;color:var(--muted2);line-height:1.65;margin-top:6px}
-.info-box code{color:var(--accent);font-family:'Courier New',monospace;background:rgba(34,211,238,.1);padding:1px 6px;border-radius:4px}
+.info-box{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.2);border-radius:10px;padding:12px 16px;font-size:.8rem;color:var(--muted2);line-height:1.6;margin-top:6px}
+.info-box code{color:var(--accent);font-family:'Courier New',monospace;background:rgba(34,211,238,.1);padding:1px 5px;border-radius:4px}
 
-/* ── DNS presets ──────────────────────────────────────────────────────── */
+/* ── DNS presets & Benchmark ──────────────────────────────────────────── */
 .dns-presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
-.dns-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--muted2);padding:7px 15px;font-size:.8rem;font-weight:600;cursor:pointer;transition:.2s;font-family:'Inter',sans-serif}
+.dns-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--muted2);padding:6px 14px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s;font-family:'Inter',sans-serif}
 .dns-btn:hover{border-color:var(--accent);color:var(--accent)}
 .dns-btn.active-dns{border-color:var(--accent);color:var(--accent);background:rgba(34,211,238,.08)}
 
+/* ── Tester Result Card ──────────────────────────────────────────────── */
+.tester-verdict{
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:12px 16px;margin-top:10px;display:none;font-size:.82rem;line-height:1.55
+}
+
+/* ── Keyboard Shortcuts Modal ─────────────────────────────────────────── */
+.modal-overlay{
+  position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);
+  backdrop-filter:blur(6px);z-index:9999;display:none;align-items:center;justify-content:center;
+  animation:slideIn .2s ease-out;
+}
+.modal-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+  width:90%;max-width:480px;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,.6);
+}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-title{font-size:1rem;font-weight:800;color:var(--text)}
+.modal-close{background:none;border:none;color:var(--muted);font-size:1.3rem;cursor:pointer}
+.modal-close:hover{color:var(--red)}
+.shortcut-list{display:flex;flex-direction:column;gap:10px;font-size:.82rem}
+.shortcut-row{display:flex;justify-content:space-between;align-items:center}
+.kbd{
+  background:var(--card);border:1px solid var(--border);border-radius:5px;
+  padding:2px 8px;font-family:monospace;font-size:.76rem;color:var(--accent);
+  box-shadow:0 2px 0 var(--border);
+}
+
+/* ── Mobile Bottom Navigation Bar ─────────────────────────────────────── */
+.bottom-nav{
+  display:none;position:fixed;bottom:0;left:0;right:0;height:60px;
+  background:rgba(10,16,32,.95);border-top:1px solid var(--border);
+  backdrop-filter:blur(16px);z-index:900;justify-content:space-around;align-items:center;
+}
+.bnav-item{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:none;border:none;color:var(--muted);font-size:.65rem;font-weight:600;
+  gap:3px;cursor:pointer;transition:color .15s;flex:1;height:100%;
+}
+.bnav-item span:first-child{font-size:1.2rem}
+.bnav-item.active{color:var(--accent)}
+
 /* ── Toast ────────────────────────────────────────────────────────────── */
-.toast{position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.84rem;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:999;transition:opacity .3s,transform .3s;opacity:0;transform:translateY(8px);pointer-events:none}
+.toast{position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:12px 18px;font-size:.82rem;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.5);z-index:999;transition:opacity .3s,transform .3s;opacity:0;transform:translateY(8px);pointer-events:none}
 .toast.show{opacity:1;transform:translateY(0)}
 .toast.ok{border-left:3px solid var(--green)}
 .toast.fail{border-left:3px solid var(--red)}
 
 /* ── Mobile responsive ────────────────────────────────────────────────── */
 @media(max-width:620px){
+  body{padding-bottom:80px}
   .stats-grid{grid-template-columns:repeat(2,1fr)}
   .mode-opts{flex-wrap:wrap}
-  .feed-controls{gap:6px}
-  .tabs{overflow-x:auto}
-  .tab-btn{padding:9px 12px;font-size:.8rem}
+  .feed-controls{gap:5px}
+  .tabs{display:none}
+  .bottom-nav{display:flex}
+  .tab-pane{padding:14px}
+  .top-domains-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -232,6 +377,8 @@ td{padding:8px 16px;vertical-align:middle}
 <header>
   <div class="logo">🛡 <span>DNS Sinkhole</span></div>
   <div class="hdr-right">
+    <button class="icon-btn" id="audioToggle" onclick="toggleAudio()" title="Toggle Sound Feedback">🔇</button>
+    <button class="icon-btn" onclick="toggleShortcutsModal()" title="Keyboard Shortcuts (?)">⌨️</button>
     <div class="hdr-badge" id="upstreamBadge" style="display:none">⬆ …</div>
     <div class="hdr-badge" id="wifiBadge" style="display:none">📶 …</div>
     <div class="hdr-badge" id="myIp">IP: …</div>
@@ -241,15 +388,29 @@ td{padding:8px 16px;vertical-align:middle}
 
 <div class="container">
 
+  <!-- Snooze Notification Banner -->
+  <div class="snooze-banner" id="snoozeBanner">
+    <div class="snooze-text" id="snoozeText">⏸ Shield Snoozed: 05:00</div>
+    <button class="btn-cancel-snooze" onclick="cancelSnooze()">Resume Protection</button>
+  </div>
+
   <!-- Mode selector -->
-  <div class="mode-sel">
-    <div class="mode-title"><span class="shield" id="shield">🛡️</span> Shield Level</div>
-    <div class="mode-opts" id="modeOpts">
-      <button class="mode-opt" onclick="setMode(0)" data-m="0">Bypass</button>
-      <button class="mode-opt" onclick="setMode(1)" data-m="1">Minimal</button>
-      <button class="mode-opt active" onclick="setMode(2)" data-m="2">Normal</button>
-      <button class="mode-opt" onclick="setMode(3)" data-m="3">Strict</button>
-      <button class="mode-opt" onclick="setMode(4)" data-m="4">Absolute</button>
+  <div class="mode-sel" id="sec-shield">
+    <div class="mode-left">
+      <div class="mode-title"><span class="shield" id="shield">🛡️</span> Shield Level</div>
+      <div class="mode-opts" id="modeOpts">
+        <button class="mode-opt" onclick="setMode(0)" data-m="0">Bypass</button>
+        <button class="mode-opt" onclick="setMode(1)" data-m="1">Minimal</button>
+        <button class="mode-opt active" onclick="setMode(2)" data-m="2">Normal</button>
+        <button class="mode-opt" onclick="setMode(3)" data-m="3">Strict</button>
+        <button class="mode-opt" onclick="setMode(4)" data-m="4">Absolute</button>
+      </div>
+    </div>
+    <div class="snooze-btns">
+      <span style="font-size:.74rem;color:var(--muted);font-weight:600">Snooze:</span>
+      <button class="snooze-btn" onclick="startSnooze(5)">5m</button>
+      <button class="snooze-btn" onclick="startSnooze(15)">15m</button>
+      <button class="snooze-btn" onclick="startSnooze(60)">1h</button>
     </div>
     <div class="mode-desc" id="modeDesc">Loading mode…</div>
   </div>
@@ -267,6 +428,11 @@ td{padding:8px 16px;vertical-align:middle}
     <div class="stat-card green">
       <div class="stat-val v-green" id="sPct">0%</div>
       <div class="stat-lbl">Block Rate</div>
+    </div>
+    <div class="stat-card cyan">
+      <div class="stat-val v-cyan" id="sQps">0.0</div>
+      <div class="stat-lbl">Activity Rate</div>
+      <div class="stat-sub">queries / sec</div>
     </div>
     <div class="stat-card">
       <div class="stat-val" id="sUptime">0s</div>
@@ -293,6 +459,48 @@ td{padding:8px 16px;vertical-align:middle}
     </div>
   </div>
 
+  <!-- Query Type Distribution Breakdown -->
+  <div class="type-dist-wrap">
+    <div class="type-dist-header">
+      <span>📊 Query Type Distribution</span>
+      <span id="typeDistTotal">0 total</span>
+    </div>
+    <div class="type-bar-multi" id="typeBarMulti">
+      <div class="type-seg" id="segA" style="width:70%;background:var(--accent)"></div>
+      <div class="type-seg" id="segAAAA" style="width:20%;background:var(--accent2)"></div>
+      <div class="type-seg" id="segHTTPS" style="width:10%;background:var(--green)"></div>
+      <div class="type-seg" id="segOther" style="width:0%;background:var(--yellow)"></div>
+    </div>
+    <div class="type-legend">
+      <div class="type-leg-item"><div class="type-leg-dot" style="background:var(--accent)"></div> A (IPv4): <span id="cntA">0</span></div>
+      <div class="type-leg-item"><div class="type-leg-dot" style="background:var(--accent2)"></div> AAAA (IPv6): <span id="cntAAAA">0</span></div>
+      <div class="type-leg-item"><div class="type-leg-dot" style="background:var(--green)"></div> HTTPS: <span id="cntHTTPS">0</span></div>
+      <div class="type-leg-item"><div class="type-leg-dot" style="background:var(--yellow)"></div> Other: <span id="cntOther">0</span></div>
+    </div>
+  </div>
+
+  <!-- Top Domains Leaderboard -->
+  <div class="top-domains-grid">
+    <div class="top-card">
+      <div class="top-card-header">
+        <span style="color:var(--red)">🚫 Top Blocked Trackers</span>
+        <span class="badge" style="background:var(--surface);padding:2px 7px;border-radius:5px;font-size:.7rem;color:var(--muted2)">Recent</span>
+      </div>
+      <div class="top-list" id="topBlockedList">
+        <div class="empty-top">No blocked queries recorded yet</div>
+      </div>
+    </div>
+    <div class="top-card">
+      <div class="top-card-header">
+        <span style="color:var(--green)">✅ Top Allowed Domains</span>
+        <span class="badge" style="background:var(--surface);padding:2px 7px;border-radius:5px;font-size:.7rem;color:var(--muted2)">Recent</span>
+      </div>
+      <div class="top-list" id="topAllowedList">
+        <div class="empty-top">No allowed queries recorded yet</div>
+      </div>
+    </div>
+  </div>
+
   <!-- RTT Sparkline -->
   <div class="spark-panel" id="sparkPanel" style="display:none">
     <div class="spark-header">
@@ -311,27 +519,30 @@ td{padding:8px 16px;vertical-align:middle}
   </div>
 
   <!-- Live feed -->
-  <div class="panel">
+  <div class="panel" id="sec-feed">
     <div class="panel-header">
       <span>⚡ Live Query Feed</span>
       <span class="badge" id="feedCount">0 queries</span>
     </div>
     <div class="feed-controls">
       <input class="feed-filter" id="feedFilter" type="text"
-             placeholder="🔍 Filter by domain…" oninput="renderFeed(false)" autocomplete="off">
+             placeholder="🔍 Filter by domain, client IP, nickname, or type… (Press 'f')" oninput="renderFeed(false)" autocomplete="off">
       <div class="type-btns">
         <button class="type-btn active" data-f="all" onclick="setTypeFilter('all',this)">All</button>
         <button class="type-btn" data-f="blocked" onclick="setTypeFilter('blocked',this)">Blocked</button>
         <button class="type-btn" data-f="allowed" onclick="setTypeFilter('allowed',this)">Allowed</button>
       </div>
-      <button class="pause-btn" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
+      <button class="tool-btn" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
+      <button class="tool-btn" onclick="clearLiveFeed()" title="Clear feed view (c)">🗑️ Clear</button>
+      <button class="tool-btn" onclick="exportCsv()" title="Export CSV log">📥 CSV</button>
+      <button class="tool-btn" onclick="exportJson()" title="Export JSON log">📥 JSON</button>
     </div>
-    <div class="feed-wrap">
+    <div class="feed-wrap" id="feedWrap">
       <table>
         <thead>
           <tr>
             <th>Domain</th>
-            <th>Client IP</th>
+            <th>Client Device</th>
             <th>Type</th>
             <th>Status</th>
             <th>Age</th>
@@ -341,16 +552,17 @@ td{padding:8px 16px;vertical-align:middle}
           <tr class="empty-row"><td colspan="5">Waiting for DNS queries…</td></tr>
         </tbody>
       </table>
+      <div class="new-queries-pill" id="newQueriesPill" onclick="scrollFeedToTop()">↓ <span id="newQueriesCount">0</span> new queries</div>
     </div>
   </div>
 
   <!-- Management tabs -->
-  <div class="panel">
+  <div class="panel" id="sec-tabs">
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('whitelist',this)">✅ Whitelist</button>
       <button class="tab-btn" onclick="switchTab('blacklist',this)">🚫 Blacklist</button>
       <button class="tab-btn" onclick="switchTab('clients',this)">📊 Clients</button>
-      <button class="tab-btn" onclick="switchTab('maint',this)">🔧 Maintenance</button>
+      <button class="tab-btn" onclick="switchTab('maint',this)">🔧 Diagnostics & Maintenance</button>
     </div>
 
     <!-- Whitelist tab -->
@@ -359,6 +571,8 @@ td{padding:8px 16px;vertical-align:middle}
         <input id="wlInput" type="text" placeholder="e.g. github.com" autocomplete="off" spellcheck="false"
                onkeydown="if(event.key==='Enter')addEntry('whitelist')">
         <button class="btn btn-sm" onclick="addEntry('whitelist')">+ Add</button>
+        <button class="btn btn-sm btn-secondary" onclick="exportListsJson()" title="Backup Whitelist & Blacklist">📥 Backup Lists</button>
+        <button class="btn btn-sm btn-secondary" onclick="importListsPrompt()" title="Import lists from JSON">📤 Import Lists</button>
       </div>
       <div class="list-entries" id="wlList"><span class="empty-list">Loading…</span></div>
     </div>
@@ -369,6 +583,8 @@ td{padding:8px 16px;vertical-align:middle}
         <input id="blInput" type="text" placeholder="e.g. ads.evil.com" autocomplete="off" spellcheck="false"
                onkeydown="if(event.key==='Enter')addEntry('blacklist')">
         <button class="btn btn-sm" onclick="addEntry('blacklist')">+ Add</button>
+        <button class="btn btn-sm btn-secondary" onclick="exportListsJson()" title="Backup Whitelist & Blacklist">📥 Backup Lists</button>
+        <button class="btn btn-sm btn-secondary" onclick="importListsPrompt()" title="Import lists from JSON">📤 Import Lists</button>
       </div>
       <div class="list-entries" id="blList"><span class="empty-list">Loading…</span></div>
     </div>
@@ -379,14 +595,15 @@ td{padding:8px 16px;vertical-align:middle}
         <table>
           <thead>
             <tr>
-              <th>Client IP</th>
+              <th>Client Device</th>
+              <th>IP Address</th>
               <th>Total</th>
               <th>Blocked</th>
               <th>Block Rate</th>
             </tr>
           </thead>
           <tbody id="clientsBody">
-            <tr class="empty-row"><td colspan="4">No client data yet…</td></tr>
+            <tr class="empty-row"><td colspan="5">No client data yet…</td></tr>
           </tbody>
         </table>
       </div>
@@ -395,6 +612,32 @@ td{padding:8px 16px;vertical-align:middle}
     <!-- Maintenance tab -->
     <div id="tab-maint" class="tab-pane">
 
+      <!-- DNS Classifier Sandbox -->
+      <div class="maint-section">
+        <h3>🧪 Interactive DNS Classifier Sandbox</h3>
+        <div class="url-form">
+          <input id="testerInput" type="text" placeholder="e.g. doubleclick.net, apple.com"
+                 onkeydown="if(event.key==='Enter')runDnsTest()">
+          <button class="btn btn-sm" onclick="runDnsTest()">Test Domain</button>
+        </div>
+        <div class="tester-verdict" id="testerVerdict"></div>
+      </div>
+
+      <!-- Flash & Partition Inspector -->
+      <div class="maint-section">
+        <h3>💾 LittleFS Flash Storage Inspector</h3>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 16px">
+          <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:8px">
+            <span id="fsStorageLabel">Loading filesystem stats…</span>
+            <span id="fsBlocklistLabel" style="color:var(--accent)">—</span>
+          </div>
+          <div style="background:var(--card);height:7px;border-radius:4px;overflow:hidden">
+            <div id="fsBar" style="background:linear-gradient(90deg,var(--accent),var(--accent2));height:100%;width:0%;transition:width .4s"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upstream DNS -->
       <div class="maint-section">
         <h3>🌐 Upstream DNS Server</h3>
         <div class="dns-presets" id="dnsPresets">
@@ -436,7 +679,7 @@ td{padding:8px 16px;vertical-align:middle}
         <div class="info-box">
           Flash new firmware wirelessly using PlatformIO:<br>
           <code>pio run -t upload --upload-port 192.168.0.247</code><br><br>
-          Or use the Arduino IDE Network upload with hostname <code>dns-sinkhole</code>
+          Or use the Arduino IDE Network upload with hostname <code>dnshole-c6</code>
           and password <code>dnshole</code>.
         </div>
       </div>
@@ -452,10 +695,143 @@ td{padding:8px 16px;vertical-align:middle}
 
 </div>
 
+<!-- Mobile Bottom Navigation Bar -->
+<nav class="bottom-nav">
+  <button class="bnav-item" onclick="mobileNav('shield')">
+    <span>🛡️</span><span>Shield</span>
+  </button>
+  <button class="bnav-item active" onclick="mobileNav('feed')">
+    <span>⚡</span><span>Feed</span>
+  </button>
+  <button class="bnav-item" onclick="mobileNav('whitelist')">
+    <span>✅</span><span>Whitelist</span>
+  </button>
+  <button class="bnav-item" onclick="mobileNav('clients')">
+    <span>📊</span><span>Clients</span>
+  </button>
+  <button class="bnav-item" onclick="mobileNav('maint')">
+    <span>🔧</span><span>Tools</span>
+  </button>
+</nav>
+
+<!-- Keyboard Shortcuts Modal -->
+<div class="modal-overlay" id="shortcutsModal" onclick="if(event.target===this)toggleShortcutsModal()">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">⌨️ Keyboard Shortcuts</div>
+      <button class="modal-close" onclick="toggleShortcutsModal()">×</button>
+    </div>
+    <div class="shortcut-list">
+      <div class="shortcut-row"><span>Focus Search Filter</span><span class="kbd">f</span> or <span class="kbd">/</span></div>
+      <div class="shortcut-row"><span>Pause / Resume Feed</span><span class="kbd">p</span> or <span class="kbd">Space</span></div>
+      <div class="shortcut-row"><span>Clear Live Feed View</span><span class="kbd">c</span></div>
+      <div class="shortcut-row"><span>Switch Shield Level (0–4)</span><span class="kbd">0</span> – <span class="kbd">4</span></div>
+      <div class="shortcut-row"><span>Whitelist Tab</span><span class="kbd">w</span></div>
+      <div class="shortcut-row"><span>Blacklist Tab</span><span class="kbd">b</span></div>
+      <div class="shortcut-row"><span>Clients Tab</span><span class="kbd">l</span></div>
+      <div class="shortcut-row"><span>Diagnostics & Tools Tab</span><span class="kbd">m</span></div>
+      <div class="shortcut-row"><span>Toggle Shortcuts Helper</span><span class="kbd">?</span></div>
+      <div class="shortcut-row"><span>Close Modal / Clear Search</span><span class="kbd">Esc</span></div>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
+// ─── Web Audio API Sound Synthesizer ─────────────────────────────────────────
+let audioEnabled = localStorage.getItem('c6_audio') === '1';
+let audioCtx = null;
+
+function updateAudioUI() {
+  const btn = document.getElementById('audioToggle');
+  if (btn) btn.textContent = audioEnabled ? '🔊' : '🔇';
+}
+updateAudioUI();
+
+function toggleAudio() {
+  audioEnabled = !audioEnabled;
+  localStorage.setItem('c6_audio', audioEnabled ? '1' : '0');
+  updateAudioUI();
+  toast(audioEnabled ? 'Sound feedback enabled' : 'Sound feedback disabled', true);
+  if (audioEnabled) playTone(587, 0.05);
+}
+
+function playTone(freq, duration) {
+  if (!audioEnabled) return;
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+  } catch(_) {}
+}
+
+// ─── IndexedDB Local History Storage ─────────────────────────────────────────
+let db = null;
+const DB_NAME = 'c6_dns_db';
+const DB_VERSION = 1;
+
+function initIndexedDB() {
+  if (!window.indexedDB) return;
+  const req = indexedDB.open(DB_NAME, DB_VERSION);
+  req.onupgradeneeded = (e) => {
+    const d = e.target.result;
+    if (!d.objectStoreNames.contains('queries')) {
+      const store = d.createObjectStore('queries', { keyPath: 'id', autoIncrement: true });
+      store.createIndex('ts', 'ts', { unique: false });
+    }
+  };
+  req.onsuccess = (e) => {
+    db = e.target.result;
+    loadHistoricalQueries();
+  };
+}
+
+function saveQueryToDb(q) {
+  if (!db) return;
+  try {
+    const tx = db.transaction('queries', 'readwrite');
+    const store = tx.objectStore('queries');
+    store.add({ d: q.d, ip: q.ip, t: q.t, b: q.b, ts: q._ts || Date.now() });
+  } catch(_) {}
+}
+
+function loadHistoricalQueries() {
+  if (!db || queries.length > 0) return;
+  try {
+    const tx = db.transaction('queries', 'readonly');
+    const store = tx.objectStore('queries');
+    const req = store.openCursor(null, 'prev');
+    let loaded = [];
+    req.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor && loaded.length < 64) {
+        const val = cursor.value;
+        val._ts = val.ts;
+        loaded.push(val);
+        cursor.continue();
+      } else if (loaded.length) {
+        queries = loaded;
+        renderFeed(false);
+        updateTopDomains();
+        updateTypeDistribution();
+      }
+    };
+  } catch(_) {}
+}
+
+initIndexedDB();
+
 // ─── State ───────────────────────────────────────────────────────────────────
 let ws = null, wsRetry = 0;
 let queries = [];
@@ -463,6 +839,143 @@ let wlData = [], blData = [];
 let paused = false;
 let typeFilter = 'all';
 let lastStats = null;
+let clientNames = {};
+let pendingScrollCount = 0;
+let isUserScrolled = false;
+
+// QPS tracking
+let queryTimestamps = [];
+
+// Snooze tracking
+let snoozeTimer = null;
+let snoozeRemaining = 0;
+let prevModeBeforeSnooze = 2;
+
+// Load client aliases from localStorage
+try {
+  clientNames = JSON.parse(localStorage.getItem('c6_client_names') || '{}');
+} catch(_) { clientNames = {}; }
+
+function saveClientNames() {
+  try { localStorage.setItem('c6_client_names', JSON.stringify(clientNames)); } catch(_) {}
+}
+
+function getClientAlias(ip) {
+  if (!ip) return { name: '—', icon: '❓' };
+  if (clientNames[ip]) return { name: clientNames[ip], icon: '💻' };
+  return { name: ip, icon: '📱' };
+}
+
+function editClientName(event, ip) {
+  if (event) event.stopPropagation();
+  const current = clientNames[ip] || '';
+  const val = prompt(`Set friendly name for ${ip}:`, current);
+  if (val === null) return;
+  if (val.trim() === '') {
+    delete clientNames[ip];
+    toast(`Reset name for ${ip}`, true);
+  } else {
+    clientNames[ip] = val.trim();
+    toast(`Saved name: ${val.trim()}`, true);
+  }
+  saveClientNames();
+  renderFeed(false);
+  loadClients();
+}
+
+function drillDownClient(ip) {
+  const filterInput = document.getElementById('feedFilter');
+  filterInput.value = ip;
+  renderFeed(false);
+  toast(`Filtered feed by ${ip}`, true);
+  window.scrollTo({ top: document.querySelector('.panel').offsetTop - 80, behavior: 'smooth' });
+}
+
+// ─── Keyboard Shortcuts Modal ────────────────────────────────────────────────
+function toggleShortcutsModal() {
+  const modal = document.getElementById('shortcutsModal');
+  const show = modal.style.display === 'flex';
+  modal.style.display = show ? 'none' : 'flex';
+}
+
+window.addEventListener('keydown', (e) => {
+  const activeEl = document.activeElement;
+  const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+
+  if (e.key === 'Escape') {
+    document.getElementById('shortcutsModal').style.display = 'none';
+    if (isInput) activeEl.blur();
+    return;
+  }
+
+  if (isInput) return;
+
+  if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+    e.preventDefault();
+    toggleShortcutsModal();
+  } else if (e.key === 'f' || e.key === '/') {
+    e.preventDefault();
+    document.getElementById('feedFilter').focus();
+  } else if (e.key === 'p' || e.key === ' ') {
+    e.preventDefault();
+    togglePause();
+  } else if (e.key === 'c') {
+    e.preventDefault();
+    clearLiveFeed();
+  } else if (['0','1','2','3','4'].includes(e.key)) {
+    setMode(parseInt(e.key));
+  } else if (e.key === 'w') {
+    switchTab('whitelist', document.querySelector('.tab-btn[onclick*="whitelist"]'));
+  } else if (e.key === 'b') {
+    switchTab('blacklist', document.querySelector('.tab-btn[onclick*="blacklist"]'));
+  } else if (e.key === 'l') {
+    switchTab('clients', document.querySelector('.tab-btn[onclick*="clients"]'));
+  } else if (e.key === 'm') {
+    switchTab('maint', document.querySelector('.tab-btn[onclick*="maint"]'));
+  }
+});
+
+// ─── Mobile Navigation ───────────────────────────────────────────────────────
+function mobileNav(target) {
+  document.querySelectorAll('.bnav-item').forEach(b => b.classList.remove('active'));
+  const btn = event.currentTarget;
+  if (btn) btn.classList.add('active');
+
+  if (target === 'shield') {
+    document.getElementById('sec-shield').scrollIntoView({ behavior: 'smooth' });
+  } else if (target === 'feed') {
+    document.getElementById('sec-feed').scrollIntoView({ behavior: 'smooth' });
+  } else {
+    const tabBtn = document.querySelector(`.tab-btn[onclick*="${target}"]`);
+    if (tabBtn) switchTab(target, tabBtn);
+    document.getElementById('sec-tabs').scrollIntoView({ behavior: 'smooth' });
+  }
+}
+
+// ─── Copy to Clipboard ───────────────────────────────────────────────────────
+function copyText(event, text) {
+  if (event) event.stopPropagation();
+  if (!text) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      toast(`📋 Copied: ${text}`, true);
+    }).catch(() => {
+      fallbackCopy(text);
+    });
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+function fallbackCopy(text) {
+  const el = document.createElement('textarea');
+  el.value = text;
+  document.body.appendChild(el);
+  el.select();
+  document.execCommand('copy');
+  document.body.removeChild(el);
+  toast(`📋 Copied: ${text}`, true);
+}
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
 function fmtUptime(s){
@@ -486,7 +999,7 @@ function timeAgo(ts){
   return Math.floor(d/60)+'m ago';
 }
 function qtypeStr(t){
-  const m={1:'A',28:'AAAA',5:'CNAME',15:'MX',16:'TXT',33:'SRV',255:'ANY'};
+  const m={1:'A',28:'AAAA',5:'CNAME',15:'MX',16:'TXT',33:'SRV',65:'HTTPS',255:'ANY'};
   return m[t]||('0x'+t.toString(16));
 }
 let toastTimer;
@@ -503,10 +1016,11 @@ function switchTab(name,btn){
   document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   if(name==='whitelist') renderList('whitelist');
   if(name==='blacklist') renderList('blacklist');
   if(name==='clients')   loadClients();
+  if(name==='maint')     loadFsInfo();
 }
 
 // ─── WebSocket ─────────────────────────────────────────────────────────────────
@@ -518,13 +1032,48 @@ function connectWS(){
   ws.onmessage=(e)=>{ try{ onQueryEvent(JSON.parse(e.data)); }catch(_){} };
 }
 
-// ─── Live feed ────────────────────────────────────────────────────────────────
+// ─── Live feed & Scroll Freeze ─────────────────────────────────────────────────
+const feedWrap = document.getElementById('feedWrap');
+feedWrap.addEventListener('scroll', () => {
+  if (feedWrap.scrollTop > 30) {
+    isUserScrolled = true;
+  } else {
+    isUserScrolled = false;
+    pendingScrollCount = 0;
+    document.getElementById('newQueriesPill').style.display = 'none';
+  }
+});
+
+function scrollFeedToTop() {
+  feedWrap.scrollTo({ top: 0, behavior: 'smooth' });
+  isUserScrolled = false;
+  pendingScrollCount = 0;
+  document.getElementById('newQueriesPill').style.display = 'none';
+  renderFeed(false);
+}
+
 function onQueryEvent(q){
+  const now = Date.now();
+  q._ts = now;
+  queryTimestamps.push(now);
+  saveQueryToDb(q);
+
+  if (q.b) playTone(440, 0.04);
+
   if(paused) return;
-  q._ts=Date.now();
   queries.unshift(q);
-  if(queries.length>50) queries.pop();
-  renderFeed(true);
+  if(queries.length>64) queries.pop();
+
+  if (isUserScrolled) {
+    pendingScrollCount++;
+    const pill = document.getElementById('newQueriesPill');
+    document.getElementById('newQueriesCount').textContent = pendingScrollCount;
+    pill.style.display = 'block';
+  } else {
+    renderFeed(true);
+  }
+  updateTopDomains();
+  updateTypeDistribution();
 }
 
 function setTypeFilter(f,btn){
@@ -542,13 +1091,28 @@ function togglePause(){
   btn.classList.toggle('paused',paused);
 }
 
+function clearLiveFeed(){
+  queries=[];
+  renderFeed(false);
+  updateTopDomains();
+  updateTypeDistribution();
+  toast('Live feed cleared', true);
+}
+
+// Omni-search across Domain, IP, Client Alias, and Record Type
 function getFiltered(){
   const text=document.getElementById('feedFilter').value.toLowerCase().trim();
   return queries.filter(q=>{
     if(typeFilter==='blocked' && !q.b) return false;
     if(typeFilter==='allowed' &&  q.b) return false;
-    if(text && !q.d.toLowerCase().includes(text)) return false;
-    return true;
+    if(!text) return true;
+
+    const dom = (q.d || '').toLowerCase();
+    const ip = (q.ip || '').toLowerCase();
+    const alias = (clientNames[q.ip] || '').toLowerCase();
+    const type = qtypeStr(q.t).toLowerCase();
+
+    return dom.includes(text) || ip.includes(text) || alias.includes(text) || type === text;
   });
 }
 
@@ -565,9 +1129,23 @@ function renderFeed(newEntry){
       ?`<span class="pill pill-blocked">● BLOCKED</span>`
       :`<span class="pill pill-allowed">○ ALLOWED</span>`;
     const rowCls='row-'+(q.b?'blocked':'allowed')+(i===0&&newEntry?' new-row':'');
+    const cInfo = getClientAlias(q.ip);
+
+    // One-Click Quick Action Button
+    const actBtn = q.b
+      ? `<button class="btn-act act-wl" onclick="quickAction(event,'whitelist','${q.d}')" title="Whitelist domain">+ Whitelist</button>`
+      : `<button class="btn-act act-bl" onclick="quickAction(event,'blacklist','${q.d}')" title="Blacklist domain">+ Blacklist</button>`;
+
     return `<tr class="${rowCls}">
-      <td class="td-domain" title="${q.d}">${q.d}</td>
-      <td class="td-type" style="color:var(--accent2)">${q.ip||'—'}</td>
+      <td class="td-domain">
+        <span class="copyable" onclick="copyText(event,'${q.d}')" title="Click to copy domain">${q.d}</span>
+        <span class="row-actions">${actBtn}</span>
+      </td>
+      <td>
+        <span class="client-badge" onclick="editClientName(event,'${q.ip}')" title="Click to rename (${q.ip})">
+          ${cInfo.icon} ${cInfo.name}
+        </span>
+      </td>
       <td class="td-type">${qtypeStr(q.t)}</td>
       <td>${status}</td>
       <td class="td-time">${timeAgo(q._ts||Date.now())}</td>
@@ -577,8 +1155,159 @@ function renderFeed(newEntry){
   document.getElementById('feedCount').textContent=filtered.length+' entries';
 }
 
+// Quick action from live feed row
+async function quickAction(event, type, domain) {
+  if (event) event.stopPropagation();
+  try {
+    const r = await fetch('/api/' + type, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ domain })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      toast(`Added to ${type}: ${domain}`, true);
+      loadLists();
+    } else {
+      toast(d.msg || 'Action failed', false);
+    }
+  } catch(_) {
+    toast('Network error', false);
+  }
+}
+
+// ─── Query Type Distribution ──────────────────────────────────────────────────
+function updateTypeDistribution() {
+  let cntA = 0, cntAAAA = 0, cntHTTPS = 0, cntOther = 0;
+  for (const q of queries) {
+    if (q.t === 1) cntA++;
+    else if (q.t === 28) cntAAAA++;
+    else if (q.t === 65) cntHTTPS++;
+    else cntOther++;
+  }
+  const total = Math.max(queries.length, 1);
+  document.getElementById('cntA').textContent = cntA;
+  document.getElementById('cntAAAA').textContent = cntAAAA;
+  document.getElementById('cntHTTPS').textContent = cntHTTPS;
+  document.getElementById('cntOther').textContent = cntOther;
+  document.getElementById('typeDistTotal').textContent = `${queries.length} recent queries`;
+
+  document.getElementById('segA').style.width = ((cntA / total) * 100) + '%';
+  document.getElementById('segAAAA').style.width = ((cntAAAA / total) * 100) + '%';
+  document.getElementById('segHTTPS').style.width = ((cntHTTPS / total) * 100) + '%';
+  document.getElementById('segOther').style.width = ((cntOther / total) * 100) + '%';
+}
+
+// ─── Top Domains Leaderboard ──────────────────────────────────────────────────
+function updateTopDomains() {
+  const blockedMap = {}, allowedMap = {};
+  for (const q of queries) {
+    if (!q.d) continue;
+    if (q.b) blockedMap[q.d] = (blockedMap[q.d] || 0) + 1;
+    else allowedMap[q.d] = (allowedMap[q.d] || 0) + 1;
+  }
+  renderTopList('topBlockedList', blockedMap, 'linear-gradient(90deg,var(--red),#fb923c)', true);
+  renderTopList('topAllowedList', allowedMap, 'linear-gradient(90deg,var(--green),var(--accent))', false);
+}
+
+function renderTopList(elemId, countsMap, barGradient, isBlocked) {
+  const container = document.getElementById(elemId);
+  const items = Object.entries(countsMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (!items.length) {
+    container.innerHTML = `<div class="empty-top">No ${isBlocked ? 'blocked' : 'allowed'} queries recorded yet</div>`;
+    return;
+  }
+  const maxVal = Math.max(...items.map(i => i[1]), 1);
+  container.innerHTML = items.map(([dom, count]) => {
+    const pct = Math.round((count / maxVal) * 100);
+    return `<div class="top-item">
+      <div class="top-row">
+        <span class="top-domain copyable" onclick="copyText(event,'${dom}')" title="Click to copy">${dom}</span>
+        <span class="top-count">${count}</span>
+      </div>
+      <div class="top-bar-bg">
+        <div class="top-bar" style="width:${pct}%;background:${barGradient}"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Export CSV & JSON ────────────────────────────────────────────────────────
+function exportCsv() {
+  if (!queries.length) { toast('No queries to export', false); return; }
+  let csv = 'Timestamp,Domain,Client_IP,Client_Name,Record_Type,Status\n';
+  for (const q of queries) {
+    const d = new Date(q._ts || Date.now()).toISOString();
+    const cName = clientNames[q.ip] || '';
+    const type = qtypeStr(q.t);
+    const status = q.b ? 'BLOCKED' : 'ALLOWED';
+    csv += `"${d}","${q.d}","${q.ip || ''}","${cName}","${type}","${status}"\n`;
+  }
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `dns_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.csv`;
+  a.click();
+  toast('Exported CSV log', true);
+}
+
+function exportJson() {
+  if (!queries.length) { toast('No queries to export', false); return; }
+  const blob = new Blob([JSON.stringify(queries, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `dns_log_${new Date().toISOString().slice(0,19).replace(/:/g,'-')}.json`;
+  a.click();
+  toast('Exported JSON log', true);
+}
+
+// ─── Lists Backup & Bulk Import ───────────────────────────────────────────────
+function exportListsJson() {
+  const data = { whitelist: wlData, blacklist: blData, exportedAt: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `dns_rules_backup_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  toast('Exported lists backup JSON', true);
+}
+
+async function importListsPrompt() {
+  const raw = prompt('Paste JSON backup content (e.g. {"whitelist":["a.com"],"blacklist":["b.com"]}):');
+  if (!raw) return;
+  try {
+    const obj = JSON.parse(raw);
+    let count = 0;
+    if (Array.isArray(obj.whitelist)) {
+      for (const d of obj.whitelist) {
+        await fetch('/api/whitelist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domain: d }) });
+        count++;
+      }
+    }
+    if (Array.isArray(obj.blacklist)) {
+      for (const d of obj.blacklist) {
+        await fetch('/api/blacklist', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ domain: d }) });
+        count++;
+      }
+    }
+    await loadLists();
+    toast(`Imported ${count} domains successfully`, true);
+  } catch(e) {
+    toast('Invalid JSON format', false);
+  }
+}
+
+// ─── QPS Calculation Loop ─────────────────────────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  queryTimestamps = queryTimestamps.filter(t => now - t <= 3000);
+  const qps = (queryTimestamps.length / 3.0).toFixed(1);
+  const qpsElem = document.getElementById('sQps');
+  if (qpsElem) qpsElem.textContent = qps;
+}, 1000);
+
 // Refresh time-ago column every 5 s
-setInterval(()=>{ if(queries.length) renderFeed(false); },5000);
+setInterval(()=>{ if(queries.length && !isUserScrolled) renderFeed(false); },5000);
 
 // ─── Stats polling ─────────────────────────────────────────────────────────────
 async function pollStats(){
@@ -597,6 +1326,11 @@ async function pollStats(){
     document.getElementById('sCache').textContent=fmtNum(s.cacheHits);
     document.getElementById('sHashes').textContent=fmtNum(s.hashes)+' hashes';
     document.getElementById('sPending').textContent=s.pending||0;
+
+    // Dynamic Title
+    if (snoozeRemaining <= 0) {
+      document.title = `(${s.pct}%) 🛡️ DNS Sinkhole · ESP32-C6`;
+    }
 
     // RTT
     if(s.avgRtt>0){
@@ -634,7 +1368,7 @@ pollStats();
 function renderSparkline(hist){
   if(!hist||hist.length<2) return;
   const svg=document.getElementById('rttSpark');
-  const W=svg.clientWidth||600, H=56;
+  const W=svg.clientWidth||600, H=52;
   const maxV=Math.max(...hist,1);
   const n=hist.length;
   const pts=hist.map((v,i)=>{
@@ -667,10 +1401,12 @@ function renderSparkline(hist){
     const data=await r.json();
     queries=data.map(q=>{q._ts=Date.now();return q;}).reverse();
     renderFeed(false);
+    updateTopDomains();
+    updateTypeDistribution();
   }catch(_){}
 })();
 
-// ─── Mode selector ────────────────────────────────────────────────────────────
+// ─── Mode selector & Snooze ───────────────────────────────────────────────────
 const modeDescs={
   0:'Bypass: All DNS filtering is disabled.',
   1:'Minimal: Only blocking domains in your custom Blacklist.',
@@ -701,6 +1437,50 @@ async function setMode(m){
 }
 loadMode();
 
+function startSnooze(mins) {
+  if (lastStats && lastStats.mode !== undefined) prevModeBeforeSnooze = lastStats.mode;
+  else prevModeBeforeSnooze = 2;
+
+  snoozeRemaining = mins * 60;
+  setMode(0);
+  updateSnoozeUI();
+
+  clearInterval(snoozeTimer);
+  snoozeTimer = setInterval(() => {
+    snoozeRemaining--;
+    if (snoozeRemaining <= 0) {
+      cancelSnooze();
+    } else {
+      updateSnoozeUI();
+    }
+  }, 1000);
+  toast(`Protection snoozed for ${mins} minutes`, true);
+}
+
+function cancelSnooze() {
+  clearInterval(snoozeTimer);
+  snoozeTimer = null;
+  snoozeRemaining = 0;
+  document.getElementById('snoozeBanner').style.display = 'none';
+  document.title = '🛡️ DNS Sinkhole · ESP32-C6';
+  setMode(prevModeBeforeSnooze || 2);
+  toast('Protection resumed', true);
+}
+
+function updateSnoozeUI() {
+  const banner = document.getElementById('snoozeBanner');
+  if (snoozeRemaining > 0) {
+    banner.style.display = 'flex';
+    const m = Math.floor(snoozeRemaining / 60);
+    const s = snoozeRemaining % 60;
+    const timeStr = `${m}:${s < 10 ? '0' : ''}${s}`;
+    document.getElementById('snoozeText').textContent = `⏸ Protection Snoozed: ${timeStr} remaining`;
+    document.title = `⏸ [${timeStr}] DNS Sinkhole`;
+  } else {
+    banner.style.display = 'none';
+  }
+}
+
 // ─── Lists ────────────────────────────────────────────────────────────────────
 async function loadLists(){
   try{
@@ -715,7 +1495,7 @@ function renderList(type){
   const data=type==='whitelist'?wlData:blData;
   const el=document.getElementById(type==='whitelist'?'wlList':'blList');
   if(!data.length){ el.innerHTML='<span class="empty-list">No entries yet.</span>'; return; }
-  el.innerHTML=data.map(d=>`<div class="domain-chip">${d}
+  el.innerHTML=data.map(d=>`<div class="domain-chip"><span class="copyable" onclick="copyText(event,'${d}')">${d}</span>
     <button class="chip-del" title="Remove" onclick="removeEntry('${type}','${d}')">×</button>
   </div>`).join('');
 }
@@ -748,18 +1528,25 @@ async function loadClients(){
     const data=await r.json();
     const tbody=document.getElementById('clientsBody');
     if(!data.length){
-      tbody.innerHTML='<tr class="empty-row"><td colspan="4">No clients seen yet.</td></tr>'; return;
+      tbody.innerHTML='<tr class="empty-row"><td colspan="5">No clients seen yet.</td></tr>'; return;
     }
     data.sort((a,b)=>b.total-a.total);
-    tbody.innerHTML=data.map(c=>`<tr>
-      <td class="td-domain" style="font-family:'Courier New',monospace">${c.ip}</td>
-      <td>${fmtNum(c.total)}</td>
-      <td style="color:var(--red)">${fmtNum(c.blocked)}</td>
-      <td><div class="pct-bar-wrap">
-        <div class="pct-bar-bg"><div class="pct-bar" style="width:${c.pct}%"></div></div>
-        <span class="pct-text">${c.pct}%</span>
-      </div></td>
-    </tr>`).join('');
+    tbody.innerHTML=data.map(c=>{
+      const cInfo = getClientAlias(c.ip);
+      return `<tr onclick="drillDownClient('${c.ip}')" title="Click to filter feed by ${c.ip}">
+        <td>
+          <span style="font-weight:600;color:var(--text)">${cInfo.icon} ${cInfo.name}</span>
+          <button class="client-alias-edit" onclick="editClientName(event,'${c.ip}')" title="Rename device">✏️</button>
+        </td>
+        <td class="td-domain copyable" onclick="copyText(event,'${c.ip}')" title="Click to copy IP">${c.ip}</td>
+        <td>${fmtNum(c.total)}</td>
+        <td style="color:var(--red)">${fmtNum(c.blocked)}</td>
+        <td><div class="pct-bar-wrap">
+          <div class="pct-bar-bg"><div class="pct-bar" style="width:${c.pct}%"></div></div>
+          <span class="pct-text">${c.pct}%</span>
+        </div></td>
+      </tr>`;
+    }).join('');
   }catch(_){}
 }
 
@@ -785,7 +1572,6 @@ async function setDnsCustom(){
   await setDns(ip,null);
 }
 
-// Load current DNS on page open
 (async function loadDns(){
   try{
     const r=await fetch('/api/dns');
@@ -793,6 +1579,58 @@ async function setDnsCustom(){
     if(d.dns) highlightDnsBtn(d.dns);
   }catch(_){}
 })();
+
+// ─── Diagnostics: DNS Classifier Sandbox ──────────────────────────────────────
+async function runDnsTest() {
+  const input = document.getElementById('testerInput');
+  const verdict = document.getElementById('testerVerdict');
+  const domain = input.value.trim().toLowerCase();
+  if (!domain || !domain.includes('.')) { toast('Enter a valid domain', false); return; }
+
+  verdict.style.display = 'block';
+  verdict.innerHTML = 'Testing domain on ESP32 engine…';
+
+  try {
+    const r = await fetch('/api/test?domain=' + encodeURIComponent(domain));
+    const d = await r.json();
+    if (d.error) {
+      verdict.innerHTML = `<span style="color:var(--red)">Error: ${d.error}</span>`;
+      return;
+    }
+    const badge = d.blocked
+      ? `<span class="pill pill-blocked">● BLOCKED</span>`
+      : `<span class="pill pill-allowed">○ ALLOWED</span>`;
+    verdict.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-weight:700;font-size:1rem;color:var(--text)">${d.domain}</span>
+        ${badge}
+      </div>
+      <div style="color:var(--muted2);font-size:.78rem">
+        ⏱ Decision Latency: <strong style="color:var(--accent)">${d.elapsedUs} µs</strong> (${(d.elapsedUs/1000).toFixed(3)} ms)<br>
+        🔑 40-Bit FNV-1a Hash: <code style="color:var(--accent2)">${d.hash}</code>
+      </div>
+    `;
+  } catch(_) {
+    verdict.innerHTML = `<span style="color:var(--red)">Network error querying /api/test</span>`;
+  }
+}
+
+// ─── Diagnostics: LittleFS Storage Info ────────────────────────────────────────
+async function loadFsInfo() {
+  try {
+    const r = await fetch('/api/fs');
+    if (!r.ok) return;
+    const d = await r.json();
+    const usedKb = Math.round(d.usedBytes / 1024);
+    const totalKb = Math.round(d.totalBytes / 1024);
+    const blKb = Math.round(d.blocklistBytes / 1024);
+    const pct = Math.round((d.usedBytes / d.totalBytes) * 100);
+
+    document.getElementById('fsStorageLabel').textContent = `Storage: ${usedKb} KB / ${totalKb} KB (${pct}%)`;
+    document.getElementById('fsBlocklistLabel').textContent = `Blocklist: ${blKb} KB (${fmtNum(d.hashes)} hashes)`;
+    document.getElementById('fsBar').style.width = pct + '%';
+  } catch(_) {}
+}
 
 // ─── OTA blocklist from URL ───────────────────────────────────────────────────
 let otaPoll=null;
@@ -820,6 +1658,7 @@ async function checkOtaStatus(){
       document.getElementById('otaBtn').disabled=false;
       toast(d.msg,d.status==='success');
       pollStats();
+      loadFsInfo();
     }
   }catch(_){}
 }
@@ -837,7 +1676,7 @@ async function uploadBlocklist(){
     const d=await r.json();
     msg.textContent=d.msg||(d.ok?'Success!':'Failed');
     toast(msg.textContent,d.ok);
-    if(d.ok) pollStats();
+    if(d.ok){ pollStats(); loadFsInfo(); }
   }catch(_){ msg.textContent='Network error'; toast('Network error',false); }
 }
 

@@ -47,6 +47,10 @@ extern IPAddress  UPSTREAM_DNS_FALLBACK;
 extern bool       g_usingFallback;
 // PendingQuery, pendingQueries[], MAX_PENDING, currentUpstream() are already in scope.
 
+// Forward declarations of core classification functions
+uint64_t fnv1a_40(const char *str, size_t len);
+bool isDomainBlocked(const char *domain, size_t domLen, uint64_t fullHash, const uint8_t *labelOffsets, uint8_t labelCount);
+
 
 static AsyncWebServer webServer(80);
 static AsyncWebSocket webSocket("/ws");
@@ -123,12 +127,36 @@ void webUiSetup() {
         req->send(r);
     });
 
-    // ── Dashboard ─────────────────────────────────────────────────────────────
+    // ── Dashboard & Static Assets ─────────────────────────────────────────────
+    webServer.on("/manifest.json", HTTP_GET, [](AsyncWebServerRequest *req) {
+        AsyncWebServerResponse *r = req->beginResponse(200, "application/manifest+json",
+            R"({"name":"DNS Sinkhole","short_name":"DNS Hole","start_url":"/","display":"standalone","background_color":"#070c18","theme_color":"#070c18","icons":[{"src":"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>","sizes":"192x192 512x512","type":"image/svg+xml"}]})");
+        r->addHeader("Cache-Control", "public, max-age=86400");
+        _cors(r);
+        req->send(r);
+    });
+
     webServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
-        if (LittleFS.exists("/index.html"))
-            req->send(LittleFS, "/index.html", "text/html");
-        else
+        if (LittleFS.exists("/index.html.gz")) {
+            AsyncWebServerResponse *r = req->beginResponse(LittleFS, "/index.html.gz", "text/html");
+            r->addHeader("Content-Encoding", "gzip");
+            r->addHeader("Cache-Control", "public, max-age=3600, must-revalidate");
+            r->addHeader("ETag", "\"c6-v2.1\"");
+            _cors(r);
+            req->send(r);
+        } else if (LittleFS.exists("/index.html")) {
+            AsyncWebServerResponse *r = req->beginResponse(LittleFS, "/index.html", "text/html");
+            r->addHeader("Cache-Control", "public, max-age=3600, must-revalidate");
+            r->addHeader("ETag", "\"c6-v2.1\"");
+            _cors(r);
+            req->send(r);
+        } else {
             req->send(503, "text/plain", "index.html missing — run uploadfs");
+        }
+    });
+
+    webServer.on("/index.html", HTTP_GET, [](AsyncWebServerRequest *req) {
+        req->redirect("/");
     });
 
     // ── GET /api/stats ────────────────────────────────────────────────────────
@@ -453,6 +481,52 @@ void webUiSetup() {
         snprintf(buf, sizeof(buf),
                  R"({"status":"%s","progress":%d,"msg":"%s"})",
                  s, getOtaProgress(), getOtaMsg().c_str());
+        _sendJson(req, 200, buf);
+    });
+
+    // ── GET /api/fs ──────────────────────────────────────────────────────────
+    webServer.on("/api/fs", HTTP_GET, [](AsyncWebServerRequest *req) {
+        size_t total = LittleFS.totalBytes();
+        size_t used  = LittleFS.usedBytes();
+        size_t blSize = blocklistFile ? blocklistFile.size() : 0;
+        char buf[192];
+        snprintf(buf, sizeof(buf),
+                 R"({"totalBytes":%u,"usedBytes":%u,"blocklistBytes":%u,"hashes":%u})",
+                 (unsigned int)total, (unsigned int)used, (unsigned int)blSize, (unsigned int)totalHashes);
+        _sendJson(req, 200, buf);
+    });
+
+    // ── GET /api/test?domain=x (DNS Classifier Playground) ────────────────────
+    webServer.on("/api/test", HTTP_GET, [](AsyncWebServerRequest *req) {
+        if (!req->hasParam("domain")) {
+            _sendJson(req, 400, R"({"error":"Missing ?domain"})"); return;
+        }
+        String d = req->getParam("domain")->value();
+        d.trim(); d.toLowerCase();
+        if (d.length() == 0 || d.length() > 120) {
+            _sendJson(req, 400, R"({"error":"Invalid domain"})"); return;
+        }
+
+        uint8_t labelOffsets[8];
+        uint8_t labelCount = 0;
+        size_t len = d.length();
+        const char *str = d.c_str();
+
+        for (size_t i = 0; i < len; i++) {
+            if (i == 0 || str[i-1] == '.') {
+                if (labelCount < 8) labelOffsets[labelCount++] = (uint8_t)i;
+            }
+        }
+        uint64_t fullHash = fnv1a_40(str, len);
+
+        uint32_t t0 = micros();
+        bool blocked = isDomainBlocked(str, len, fullHash, labelOffsets, labelCount);
+        uint32_t elapsedUs = micros() - t0;
+
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+                 R"({"domain":"%s","blocked":%s,"elapsedUs":%lu,"hash":"0x%llX"})",
+                 str, blocked ? "true" : "false", (unsigned long)elapsedUs, (unsigned long long)fullHash);
         _sendJson(req, 200, buf);
     });
 
