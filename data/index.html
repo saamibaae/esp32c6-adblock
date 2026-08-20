@@ -1437,8 +1437,10 @@ function onStatsEvent(s) {
     document.getElementById('sTotal').textContent=fmtNum(s.total);
     document.getElementById('sBlocked').textContent=fmtNum(s.blocked);
     document.getElementById('sPct').textContent=s.pct+'%';
-    localUptime = s.uptime;
-    document.getElementById('sUptime').textContent=fmtUptime(s.uptime);
+    if (Math.abs(localUptime - s.uptime) > 2) {
+      localUptime = s.uptime;
+      document.getElementById('sUptime').textContent=fmtUptime(localUptime);
+    }
     document.getElementById('sHeap').textContent=fmtBytes(s.heap);
     document.getElementById('sCache').textContent=fmtNum(s.cacheHits);
     document.getElementById('sHashes').textContent=fmtNum(s.hashes)+' hashes';
