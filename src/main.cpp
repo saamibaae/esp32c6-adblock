@@ -212,35 +212,16 @@ bool isStrictTracker(const char* domain) {
 
 bool isDomainBlocked(const char *domain)
 {
-    // 1. Whitelist — always forward, skip all block checks
-    if (isWhitelisted(domain)) return false;
-
     // Mode: ABSOLUTE (Hailmary) — block EVERYTHING not whitelisted
-    if (g_blockMode == BlockMode::ABSOLUTE) return true;
+    if (g_blockMode == BlockMode::ABSOLUTE) {
+        if (isWhitelisted(domain)) return false;
+        return true;
+    }
 
     // Mode: BYPASS — block nothing
     if (g_blockMode == BlockMode::BYPASS) return false;
 
-    // 2. Custom blacklist — block immediately without touching flash
-    if (isCustomBlocked(domain)) return true;
-
-    // Mode: MINIMAL — block ONLY custom blacklist (ignore blocklist.bin)
-    if (g_blockMode == BlockMode::MINIMAL) return false;
-
-    // 3. Strict Mode explicitly blocks all known major trackers
-    if (g_blockMode == BlockMode::STRICT) {
-        if (isAppleTracking(domain)) return true;
-        if (isGoogleTracking(domain)) return true;
-        if (isStrictTracker(domain)) return true;
-    }
-
-    // 4. Ensure Essential services are never accidentally blocked (Normal & Strict modes)
-    if (g_blockMode == BlockMode::NORMAL || g_blockMode == BlockMode::STRICT) {
-        if (isApple(domain)) return false; // Apple full unblock
-        if (isEssentialGoogle(domain)) return false; // Google essential unblock
-    }
-
-    // 3. LRU cache — avoids flash seeks for repeated domains
+    // --- LRU CACHE CHECK FIRST ---
     uint64_t fullHash = fnv1a_40(domain, strlen(domain));
     bool cached;
     if (lruLookup(fullHash, cached)) {
@@ -248,7 +229,41 @@ bool isDomainBlocked(const char *domain)
         return cached;
     }
 
-    // 4. Binary search in LittleFS for domain + parent subdomains
+    // 1. Whitelist — always forward, skip all block checks
+    if (isWhitelisted(domain)) {
+        lruInsert(fullHash, false);
+        return false;
+    }
+
+    // 2. Custom blacklist — block immediately without touching flash
+    if (isCustomBlocked(domain)) {
+        lruInsert(fullHash, true);
+        return true;
+    }
+
+    // Mode: MINIMAL — block ONLY custom blacklist (ignore blocklist.bin)
+    if (g_blockMode == BlockMode::MINIMAL) {
+        lruInsert(fullHash, false);
+        return false;
+    }
+
+    // 3. Strict Mode explicitly blocks all known major trackers
+    if (g_blockMode == BlockMode::STRICT) {
+        if (isAppleTracking(domain) || isGoogleTracking(domain) || isStrictTracker(domain)) {
+            lruInsert(fullHash, true);
+            return true;
+        }
+    }
+
+    // 4. Ensure Essential services are never accidentally blocked (Normal & Strict modes)
+    if (g_blockMode == BlockMode::NORMAL || g_blockMode == BlockMode::STRICT) {
+        if (isApple(domain) || isEssentialGoogle(domain)) {
+            lruInsert(fullHash, false);
+            return false;
+        }
+    }
+
+    // 5. Binary search in LittleFS for domain + parent subdomains
     const char *cur = domain;
     bool blocked = false;
     while (*cur) {
@@ -258,7 +273,7 @@ bool isDomainBlocked(const char *domain)
         cur++; // advance past dot
     }
 
-    // 5. Cache result for next time
+    // 6. Cache result for next time
     lruInsert(fullHash, blocked);
     return blocked;
 }
