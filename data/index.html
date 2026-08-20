@@ -132,8 +132,9 @@ td{padding:9px 16px;vertical-align:middle}
 <header>
   <div class="logo">🛡 <span>DNS Sinkhole</span></div>
   <div class="hdr-right">
-    <div class="ip-badge" id="ip">...</div>
-    <div class="ws-dot" id="wsDot" title="WebSocket"></div>
+    <div class="ip-badge" id="wifiBadge" style="display:none; color:var(--text); border-color:var(--muted2);">WiFi: ...</div>
+    <div class="ip-badge" id="myIp">IP: ...</div>
+    <div class="ws-dot err" id="wsDot"></div>
   </div>
 </header>
 
@@ -192,13 +193,14 @@ td{padding:9px 16px;vertical-align:middle}
         <thead>
           <tr>
             <th>Domain</th>
+            <th>Client IP</th>
             <th>Type</th>
             <th>Status</th>
             <th>Age</th>
           </tr>
         </thead>
         <tbody id="feedBody">
-          <tr class="empty-row"><td colspan="4">Waiting for DNS queries…</td></tr>
+          <tr class="empty-row"><td colspan="5">Waiting for DNS queries…</td></tr>
         </tbody>
       </table>
     </div>
@@ -343,7 +345,7 @@ let milliOffset=0;
 function renderFeed(newEntry){
   const tbody=document.getElementById('feedBody');
   if(!queries.length){
-    tbody.innerHTML='<tr class="empty-row"><td colspan="4">Waiting for DNS queries…</td></tr>';
+    tbody.innerHTML='<tr class="empty-row"><td colspan="5">Waiting for DNS queries…</td></tr>';
     document.getElementById('feedCount').textContent='0 queries';
     return;
   }
@@ -354,6 +356,7 @@ function renderFeed(newEntry){
       :`<span class="pill pill-allowed">○ ALLOWED</span>`;
     return `<tr${i===0&&newEntry?' class="new-row"':''}>
       <td class="td-domain" title="${q.d}">${q.d}</td>
+      <td class="td-type" style="color:var(--accent2);">${q.ip||'--'}</td>
       <td class="td-type">${qtypeStr(q.t)}</td>
       <td>${status}</td>
       <td class="td-time">${timeAgo(q.ts)}</td>
@@ -380,6 +383,15 @@ async function pollStats(){
     document.getElementById('sHeap').textContent=fmtBytes(s.heap);
     document.getElementById('sCache').textContent=fmtNum(s.cacheHits);
     document.getElementById('sHashes').textContent=fmtNum(s.hashes)+' hashes';
+
+    if(s.ssid) {
+      const wBadge = document.getElementById('wifiBadge');
+      wBadge.style.display = 'block';
+      wBadge.textContent = s.ssid + ' (' + s.rssi + ' dBm ' + s.rssiTag + ')';
+      if(s.rssiTag==='Best' || s.rssiTag==='Good') wBadge.style.color='var(--green)';
+      else if(s.rssiTag==='Medium') wBadge.style.color='var(--yellow)';
+      else wBadge.style.color='var(--red)';
+    }
   }catch(_){}
 }
 setInterval(pollStats,2500);

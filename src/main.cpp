@@ -550,8 +550,9 @@ void loop()
         bool     blocked = isDomainBlocked(domain);
 
         // Record stats + broadcast to web dashboard
-        g_stats.record(domain, qtype, blocked);
-        broadcastQuery(domain, qtype, blocked);
+        String clientIPStr = clientIP.toString();
+        g_stats.record(domain, qtype, blocked, clientIPStr.c_str());
+        broadcastQuery(domain, qtype, blocked, clientIPStr.c_str());
 
         if (blocked) {
             Serial.printf("[BLOCK] %s (%s)\n", domain,

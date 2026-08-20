@@ -86,12 +86,12 @@ static ArBodyHandlerFunction _bodyHandler(
 }
 
 // ── Broadcast a query event to all WebSocket clients ────────────────────────
-void broadcastQuery(const char *domain, uint16_t qtype, bool blocked) {
+void broadcastQuery(const char *domain, uint16_t qtype, bool blocked, const char *clientIP) {
     if (webSocket.count() == 0) return;
-    char buf[128];
+    char buf[256];
     snprintf(buf, sizeof(buf),
-             R"({"d":"%s","t":%u,"b":%s,"ts":%lu})",
-             domain, qtype, blocked ? "true" : "false",
+             R"({"d":"%s","t":%u,"b":%s,"ip":"%s","ts":%lu})",
+             domain, qtype, blocked ? "true" : "false", clientIP,
              (unsigned long)millis());
     webSocket.textAll(buf);
 }
@@ -123,11 +123,17 @@ void webUiSetup() {
             req->send(503, "text/plain", "index.html missing — run uploadfs");
     });
 
-    // ── GET /api/stats ────────────────────────────────────────────────────────
+    // ── GET /api/stats ────────────────────────────────────────────────────────    //  GET /api/stats 
     webServer.on("/api/stats", HTTP_GET, [](AsyncWebServerRequest *req) {
-        char buf[256];
+        char buf[512];
+        int8_t rssi = WiFi.RSSI();
+        const char* rssiTag = "Bad";
+        if (rssi >= -50) rssiTag = "Best";
+        else if (rssi >= -65) rssiTag = "Good";
+        else if (rssi >= -80) rssiTag = "Medium";
+        
         snprintf(buf, sizeof(buf),
-            R"({"total":%lu,"blocked":%lu,"pct":%lu,"uptime":%lu,"heap":%lu,"ip":"%s","hashes":%lu,"cacheHits":%lu})",
+            R"({"total":%lu,"blocked":%lu,"pct":%lu,"uptime":%lu,"heap":%lu,"ip":"%s","hashes":%lu,"cacheHits":%lu,"ssid":"%s","rssi":%d,"rssiTag":"%s"})",
             (unsigned long)g_stats.totalQueries,
             (unsigned long)g_stats.blockedQueries,
             (unsigned long)g_stats.blockedPct(),
@@ -135,27 +141,33 @@ void webUiSetup() {
             (unsigned long)ESP.getFreeHeap(),
             WiFi.localIP().toString().c_str(),
             (unsigned long)totalHashes,
-            (unsigned long)g_stats.cacheHits);
+            (unsigned long)g_stats.cacheHits,
+            WiFi.SSID().c_str(),
+            rssi,
+            rssiTag);
         _sendJson(req, 200, buf);
     });
 
     // ── GET /api/queries ──────────────────────────────────────────────────────
     webServer.on("/api/queries", HTTP_GET, [](AsyncWebServerRequest *req) {
-        JsonDocument doc;
-        JsonArray arr = doc.to<JsonArray>();
-        int count = g_stats.logCount;
-        int start = (g_stats.logHead - count + QUERY_LOG_SIZE) % QUERY_LOG_SIZE;
-        for (int i = 0; i < count; i++) {
-            int idx = (start + i) % QUERY_LOG_SIZE;
-            JsonObject o = arr.add<JsonObject>();
-            o["d"]  = g_stats.log[idx].domain;
-            o["t"]  = g_stats.log[idx].qtype;
-            o["b"]  = g_stats.log[idx].blocked;
-            o["ts"] = g_stats.log[idx].timestamp;
+        String json = "[";
+        int idx = g_stats.logHead - 1;
+        if (idx < 0) idx = QUERY_LOG_SIZE - 1;
+
+        for (int i = 0; i < g_stats.logCount; i++) {
+            const QueryEntry &e = g_stats.log[idx];
+            if (i > 0) json += ",";
+            char entryBuf[256];
+            snprintf(entryBuf, sizeof(entryBuf),
+                     R"({"d":"%s","t":%u,"b":%s,"ip":"%s","ts":%lu})",
+                     e.domain, e.qtype, e.blocked ? "true" : "false", e.clientIP, e.timestamp);
+            json += entryBuf;
+
+            idx--;
+            if (idx < 0) idx = QUERY_LOG_SIZE - 1;
         }
-        String json;
-        serializeJson(doc, json);
-        _sendJson(req, 200, json);
+        json += "]";
+        _sendJson(req, 200, json.c_str());
     });
 
     // ── GET /api/mode ─────────────────────────────────────────────────────────

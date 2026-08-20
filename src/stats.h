@@ -9,6 +9,7 @@ const int QUERY_LOG_SIZE = 30;
 
 struct QueryEntry {
     char     domain[64];
+    char     clientIP[16]; // IPv4 address format: "255.255.255.255\0"
     uint16_t qtype;
     bool     blocked;
     uint32_t timestamp; // millis() value
@@ -26,12 +27,13 @@ struct Stats {
     int        logCount = 0;  // clamped at QUERY_LOG_SIZE
 
     // Record a DNS decision (called in the hot path — no heap allocation)
-    void record(const char *domain, uint16_t qtype, bool blocked) {
+    void record(const char *domain, uint16_t qtype, bool blocked, const char *clientIP) {
         totalQueries++;
         if (blocked) blockedQueries++;
 
         QueryEntry &e = log[logHead];
         strlcpy(e.domain, domain, sizeof(e.domain));
+        strlcpy(e.clientIP, clientIP, sizeof(e.clientIP));
         e.qtype     = qtype;
         e.blocked   = blocked;
         e.timestamp = millis();
