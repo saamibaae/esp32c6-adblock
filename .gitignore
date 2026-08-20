@@ -12,3 +12,6 @@ include/secrets.h
 
 # Large binary data file — regenerate with tools/generate_blocklist.py
 data/blocklist.bin
+
+# Local agent instructions
+AGENTS.md
