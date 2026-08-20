@@ -375,7 +375,7 @@ async function pollStats(){
     const r=await fetch('/api/stats');
     if(!r.ok) return;
     const s=await r.json();
-    document.getElementById('ip').textContent=s.ip;
+    document.getElementById('myIp').textContent=s.ip;
     document.getElementById('sTotal').textContent=fmtNum(s.total);
     document.getElementById('sBlocked').textContent=fmtNum(s.blocked);
     document.getElementById('sPct').textContent=s.pct+'%';
