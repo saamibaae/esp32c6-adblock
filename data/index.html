@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DNS Sinkhole · ESP32-C6</title>
+<style>
+:root{
+  --bg:#070c18;--surface:#0d1424;--card:#111929;--border:#1e2d4a;
+  --accent:#22d3ee;--accent2:#818cf8;--red:#f87171;--green:#4ade80;
+  --yellow:#fbbf24;--text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;
+  --radius:12px;--gap:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;min-height:100vh;padding-bottom:40px}
+a{color:var(--accent);text-decoration:none}
+
+/* Header */
+header{background:linear-gradient(135deg,#0a1628 0%,#0f1e3d 50%,#0a1628 100%);border-bottom:1px solid var(--border);padding:18px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}
+.logo{display:flex;align-items:center;gap:10px;font-size:1.25rem;font-weight:700;letter-spacing:-0.5px}
+.logo span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hdr-right{display:flex;align-items:center;gap:16px}
+.ip-badge{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:.85rem;font-family:'Courier New',monospace;color:var(--accent)}
+.ws-dot{width:10px;height:10px;border-radius:50%;background:var(--muted);transition:.3s;flex-shrink:0}
+.ws-dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}
+.ws-dot.err{background:var(--red);box-shadow:0 0 8px var(--red)}
+
+/* Layout */
+.container{max-width:1200px;margin:0 auto;padding:24px var(--gap)}
+
+/* Stats grid */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--gap);margin-bottom:24px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 18px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s;cursor:default}
+.stat-card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:.6}
+.stat-card.red::before{background:linear-gradient(90deg,var(--red),#fb923c)}
+.stat-card.green::before{background:linear-gradient(90deg,var(--green),var(--accent))}
+.stat-val{font-size:1.9rem;font-weight:800;letter-spacing:-1px;line-height:1.1;margin-bottom:4px;background:linear-gradient(135deg,var(--text),var(--muted2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.stat-val.v-red{background:linear-gradient(135deg,var(--red),#fb923c);-webkit-background-clip:text;background-clip:text}
+.stat-val.v-green{background:linear-gradient(135deg,var(--green),var(--accent));-webkit-background-clip:text;background-clip:text}
+.stat-lbl{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+.stat-sub{font-size:.72rem;color:var(--muted);margin-top:4px}
+
+/* Panel */
+.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:24px}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:.9rem}
+.panel-header .badge{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.75rem;color:var(--muted2)}
+
+/* Feed table */
+.feed-wrap{overflow-x:auto;max-height:420px;overflow-y:auto}
+.feed-wrap::-webkit-scrollbar{width:6px;height:6px}
+.feed-wrap::-webkit-scrollbar-track{background:transparent}
+.feed-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+thead th{padding:10px 16px;text-align:left;font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--border)}
+tbody tr{border-bottom:1px solid rgba(30,45,74,.5);transition:background .15s}
+tbody tr:hover{background:rgba(34,211,238,.04)}
+tbody tr.new-row{animation:slideIn .3s ease-out}
+@keyframes slideIn{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:translateX(0)}}
+td{padding:9px 16px;vertical-align:middle}
+.td-domain{font-family:'Courier New',monospace;font-size:.82rem;color:var(--text);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-type{font-size:.75rem;color:var(--muted2);font-family:monospace}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;font-weight:700;border-radius:20px;padding:3px 10px;letter-spacing:.4px}
+.pill-blocked{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.3)}
+.pill-allowed{background:rgba(74,222,128,.12);color:var(--green);border:1px solid rgba(74,222,128,.25)}
+.pill-cached{background:rgba(251,191,36,.12);color:var(--yellow);border:1px solid rgba(251,191,36,.25)}
+.td-time{font-size:.75rem;color:var(--muted);white-space:nowrap}
+.empty-row td{text-align:center;color:var(--muted);padding:32px;font-size:.85rem}
+
+/* Tabs */
+.tabs{display:flex;gap:2px;padding:6px 6px 0;border-bottom:1px solid var(--border)}
+.tab-btn{background:none;border:none;color:var(--muted);padding:9px 18px;cursor:pointer;font-size:.85rem;font-weight:500;border-radius:8px 8px 0 0;transition:.15s;border:1px solid transparent;border-bottom:none;position:relative;top:1px}
+.tab-btn:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.tab-btn.active{color:var(--accent);background:var(--card);border-color:var(--border);font-weight:600}
+.tab-pane{display:none;padding:20px}
+.tab-pane.active{display:block}
+
+/* List management */
+.add-form{display:flex;gap:8px;margin-bottom:16px}
+.add-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:.875rem;outline:none;font-family:'Courier New',monospace;transition:border-color .2s}
+.add-form input:focus{border-color:var(--accent)}
+.add-form input::placeholder{color:var(--muted)}
+.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#0a0f1e;padding:10px 18px;font-size:.85rem;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap}
+.btn:hover{opacity:.85;transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn-sm{padding:5px 12px;font-size:.75rem;border-radius:6px}
+.btn-danger{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
+.list-entries{display:flex;flex-wrap:wrap;gap:8px;min-height:40px}
+.domain-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:.8rem;font-family:'Courier New',monospace;color:var(--muted2)}
+.chip-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;padding:0;transition:.15s}
+.chip-del:hover{color:var(--red)}
+.empty-list{color:var(--muted);font-size:.85rem;padding:8px 0}
+
+/* Maintenance */
+.maint-section{margin-bottom:28px}
+.maint-section h3{font-size:.9rem;font-weight:600;margin-bottom:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.6px}
+.url-form{display:flex;gap:8px}
+.url-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:.85rem;outline:none;transition:border-color .2s}
+.url-form input:focus{border-color:var(--accent)}
+.ota-bar-wrap{margin-top:10px;display:none}
+.ota-bar-bg{background:var(--surface);border-radius:6px;height:8px;overflow:hidden;border:1px solid var(--border)}
+.ota-bar{background:linear-gradient(90deg,var(--accent),var(--accent2));height:100%;border-radius:6px;transition:width .4s;width:0%}
+.ota-msg{font-size:.8rem;color:var(--muted);margin-top:6px}
+.upload-label{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:2px dashed var(--border);border-radius:10px;padding:16px 24px;cursor:pointer;font-size:.85rem;color:var(--muted2);transition:.2s}
+.upload-label:hover{border-color:var(--accent);color:var(--text)}
+.upload-label input{display:none}
+.info-box{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.2);border-radius:10px;padding:14px 18px;font-size:.82rem;color:var(--muted2);line-height:1.6;margin-top:8px}
+.info-box code{color:var(--accent);font-family:'Courier New',monospace;background:rgba(34,211,238,.1);padding:1px 6px;border-radius:4px}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.85rem;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:999;transition:opacity .3s,transform .3s;opacity:0;transform:translateY(8px);pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.ok{border-left:3px solid var(--green)}
+.toast.fail{border-left:3px solid var(--red)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🛡 <span>DNS Sinkhole</span></div>
+  <div class="hdr-right">
+    <div class="ip-badge" id="ip">...</div>
+    <div class="ws-dot" id="wsDot" title="WebSocket"></div>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Stats row -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-val" id="sTotal">0</div>
+      <div class="stat-lbl">Total Queries</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-val v-red" id="sBlocked">0</div>
+      <div class="stat-lbl">Blocked</div>
+    </div>
+    <div class="stat-card green">
+      <div class="stat-val v-green" id="sPct">0%</div>
+      <div class="stat-lbl">Block Rate</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="sUptime">0s</div>
+      <div class="stat-lbl">Uptime</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="sHeap">—</div>
+      <div class="stat-lbl">Free Heap</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="sCache">0</div>
+      <div class="stat-lbl">Cache Hits</div>
+      <div class="stat-sub" id="sHashes"></div>
+    </div>
+  </div>
+
+  <!-- Live feed -->
+  <div class="panel">
+    <div class="panel-header">
+      <span>⚡ Live Query Feed</span>
+      <span class="badge" id="feedCount">0 queries</span>
+    </div>
+    <div class="feed-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody id="feedBody">
+          <tr class="empty-row"><td colspan="4">Waiting for DNS queries…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Management tabs -->
+  <div class="panel">
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('whitelist',this)">✅ Whitelist</button>
+      <button class="tab-btn" onclick="switchTab('blacklist',this)">🚫 Blacklist</button>
+      <button class="tab-btn" onclick="switchTab('maint',this)">🔧 Maintenance</button>
+    </div>
+
+    <div id="tab-whitelist" class="tab-pane active">
+      <div class="add-form">
+        <input id="wlInput" type="text" placeholder="e.g. github.com" autocomplete="off" spellcheck="false"
+               onkeydown="if(event.key==='Enter')addEntry('whitelist')">
+        <button class="btn btn-sm" onclick="addEntry('whitelist')">+ Add</button>
+      </div>
+      <div class="list-entries" id="wlList"><span class="empty-list">Loading…</span></div>
+    </div>
+
+    <div id="tab-blacklist" class="tab-pane">
+      <div class="add-form">
+        <input id="blInput" type="text" placeholder="e.g. ads.evil.com" autocomplete="off" spellcheck="false"
+               onkeydown="if(event.key==='Enter')addEntry('blacklist')">
+        <button class="btn btn-sm" onclick="addEntry('blacklist')">+ Add</button>
+      </div>
+      <div class="list-entries" id="blList"><span class="empty-list">Loading…</span></div>
+    </div>
+
+    <div id="tab-maint" class="tab-pane">
+
+      <div class="maint-section">
+        <h3>📦 Update Blocklist from URL</h3>
+        <div class="url-form">
+          <input id="otaUrl" type="url" placeholder="http://192.168.0.x/blocklist.bin">
+          <button class="btn btn-sm" id="otaBtn" onclick="triggerOta()">Download</button>
+        </div>
+        <div class="ota-bar-wrap" id="otaBarWrap">
+          <div class="ota-bar-bg"><div class="ota-bar" id="otaBar"></div></div>
+          <div class="ota-msg" id="otaMsg"></div>
+        </div>
+      </div>
+
+      <div class="maint-section">
+        <h3>📤 Upload blocklist.bin Directly</h3>
+        <label class="upload-label">
+          <input type="file" id="uploadFile" accept=".bin" onchange="uploadBlocklist()">
+          📂 Choose blocklist.bin file…
+        </label>
+        <div id="uploadMsg" class="ota-msg" style="margin-top:8px"></div>
+      </div>
+
+      <div class="maint-section">
+        <h3>💾 Firmware OTA (ArduinoOTA)</h3>
+        <div class="info-box">
+          Flash new firmware wirelessly using PlatformIO:<br>
+          <code>pio run -t upload --upload-port 192.168.0.247</code><br><br>
+          Or use the Arduino IDE Network upload with hostname <code>dns-sinkhole</code> and password <code>dnshole</code>.
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── State ──────────────────────────────────────────────────────────────────
+let ws = null, wsRetry = 0;
+let queries = [];
+let wlData = [], blData = [];
+
+// ─── Utils ───────────────────────────────────────────────────────────────────
+function fmtUptime(s){
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m '+( s%60)+'s';
+  return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';
+}
+function fmtBytes(b){
+  if(b>1048576) return (b/1048576).toFixed(1)+' MB';
+  return (b/1024).toFixed(0)+' KB';
+}
+function fmtNum(n){
+  if(n>=1e6) return (n/1e6).toFixed(1)+'M';
+  if(n>=1e3) return (n/1e3).toFixed(1)+'k';
+  return n;
+}
+function timeAgo(ts){
+  let d=Math.floor((Date.now()-ts)/1000);
+  if(d<5) return 'now';
+  if(d<60) return d+'s ago';
+  return Math.floor(d/60)+'m ago';
+}
+function qtypeStr(t){
+  const m={1:'A',28:'AAAA',5:'CNAME',15:'MX',16:'TXT',33:'SRV',255:'ANY'};
+  return m[t]||('0x'+t.toString(16));
+}
+let toastTimer;
+function toast(msg,ok){
+  const el=document.getElementById('toast');
+  el.textContent=msg;
+  el.className='toast '+(ok?'ok':'fail')+' show';
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.className='toast',3000);
+}
+
+// ─── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(name,btn){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById('tab-'+name).classList.add('active');
+  btn.classList.add('active');
+  if(name==='whitelist') renderList('whitelist');
+  if(name==='blacklist') renderList('blacklist');
+}
+
+// ─── WebSocket ────────────────────────────────────────────────────────────────
+function connectWS(){
+  ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen=()=>{ document.getElementById('wsDot').className='ws-dot ok'; wsRetry=0; };
+  ws.onclose=()=>{ document.getElementById('wsDot').className='ws-dot err';
+    setTimeout(connectWS, Math.min(1000*(++wsRetry),10000)); };
+  ws.onmessage=(e)=>{
+    try{ addQuery(JSON.parse(e.data)); }catch(_){}
+  };
+}
+
+// ─── Feed ────────────────────────────────────────────────────────────────────
+function addQuery(q){
+  q._ts=Date.now()-(milliOffset||0);  // align to wall clock
+  queries.unshift(q);
+  if(queries.length>30) queries.pop();
+  renderFeed(true);
+}
+
+let milliOffset=0;
+function renderFeed(newEntry){
+  const tbody=document.getElementById('feedBody');
+  if(!queries.length){
+    tbody.innerHTML='<tr class="empty-row"><td colspan="4">Waiting for DNS queries…</td></tr>';
+    document.getElementById('feedCount').textContent='0 queries';
+    return;
+  }
+  const rows=queries.map((q,i)=>{
+    const blocked=q.b;
+    const status=blocked
+      ?`<span class="pill pill-blocked">● BLOCKED</span>`
+      :`<span class="pill pill-allowed">○ ALLOWED</span>`;
+    return `<tr${i===0&&newEntry?' class="new-row"':''}>
+      <td class="td-domain" title="${q.d}">${q.d}</td>
+      <td class="td-type">${qtypeStr(q.t)}</td>
+      <td>${status}</td>
+      <td class="td-time">${timeAgo(q.ts)}</td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML=rows;
+  document.getElementById('feedCount').textContent=queries.length+' entries';
+}
+
+// Update time-ago column every 5 seconds
+setInterval(()=>{ if(queries.length) renderFeed(false); }, 5000);
+
+// ─── Stats polling ────────────────────────────────────────────────────────────
+async function pollStats(){
+  try{
+    const r=await fetch('/api/stats');
+    if(!r.ok) return;
+    const s=await r.json();
+    document.getElementById('ip').textContent=s.ip;
+    document.getElementById('sTotal').textContent=fmtNum(s.total);
+    document.getElementById('sBlocked').textContent=fmtNum(s.blocked);
+    document.getElementById('sPct').textContent=s.pct+'%';
+    document.getElementById('sUptime').textContent=fmtUptime(s.uptime);
+    document.getElementById('sHeap').textContent=fmtBytes(s.heap);
+    document.getElementById('sCache').textContent=fmtNum(s.cacheHits);
+    document.getElementById('sHashes').textContent=fmtNum(s.hashes)+' hashes';
+  }catch(_){}
+}
+setInterval(pollStats,2500);
+pollStats();
+
+// ─── Load initial query log ───────────────────────────────────────────────────
+(async function loadQueries(){
+  try{
+    const r=await fetch('/api/queries');
+    const data=await r.json();
+    queries=data.reverse();
+    renderFeed(false);
+  }catch(_){}
+})();
+
+// ─── List management ──────────────────────────────────────────────────────────
+async function loadLists(){
+  try{
+    const [wr,br]=await Promise.all([fetch('/api/whitelist'),fetch('/api/blacklist')]);
+    wlData=await wr.json();
+    blData=await br.json();
+    renderList('whitelist');
+    renderList('blacklist');
+  }catch(_){}
+}
+loadLists();
+
+function renderList(type){
+  const data=type==='whitelist'?wlData:blData;
+  const el=document.getElementById(type==='whitelist'?'wlList':'blList');
+  if(!data.length){ el.innerHTML='<span class="empty-list">No entries yet.</span>'; return; }
+  el.innerHTML=data.map(d=>`
+    <div class="domain-chip">
+      ${d}
+      <button class="chip-del" title="Remove" onclick="removeEntry('${type}','${d}')">×</button>
+    </div>`).join('');
+}
+
+async function addEntry(type){
+  const input=document.getElementById(type==='whitelist'?'wlInput':'blInput');
+  const domain=input.value.trim().toLowerCase();
+  if(!domain||!domain.includes('.')){ toast('Enter a valid domain',''); return; }
+  try{
+    const r=await fetch('/api/'+type,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain})});
+    const d=await r.json();
+    if(d.ok){ input.value=''; await loadLists(); toast('Added: '+domain,true); }
+    else toast(d.msg||'Failed',false);
+  }catch(_){ toast('Network error',false); }
+}
+
+async function removeEntry(type,domain){
+  try{
+    const r=await fetch('/api/'+type+'?domain='+encodeURIComponent(domain),{method:'DELETE'});
+    const d=await r.json();
+    if(d.ok){ await loadLists(); toast('Removed: '+domain,true); }
+    else toast(d.msg||'Failed',false);
+  }catch(_){ toast('Network error',false); }
+}
+
+// ─── OTA blocklist from URL ───────────────────────────────────────────────────
+let otaPoll=null;
+async function triggerOta(){
+  const url=document.getElementById('otaUrl').value.trim();
+  if(!url.startsWith('http')){ toast('Enter a valid URL',false); return; }
+  document.getElementById('otaBtn').disabled=true;
+  document.getElementById('otaBarWrap').style.display='block';
+  try{
+    const r=await fetch('/api/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    if(!r.ok){ toast('Failed to start',false); return; }
+    toast('Download started…',true);
+    otaPoll=setInterval(checkOtaStatus,1200);
+  }catch(_){ toast('Network error',false); document.getElementById('otaBtn').disabled=false; }
+}
+
+async function checkOtaStatus(){
+  try{
+    const r=await fetch('/api/ota/status');
+    const d=await r.json();
+    document.getElementById('otaBar').style.width=d.progress+'%';
+    document.getElementById('otaMsg').textContent=d.msg;
+    if(d.status==='success'||d.status==='failed'){
+      clearInterval(otaPoll);
+      document.getElementById('otaBtn').disabled=false;
+      toast(d.msg,d.status==='success');
+      pollStats();
+    }
+  }catch(_){}
+}
+
+// ─── Direct upload ────────────────────────────────────────────────────────────
+async function uploadBlocklist(){
+  const file=document.getElementById('uploadFile').files[0];
+  if(!file) return;
+  const msg=document.getElementById('uploadMsg');
+  msg.textContent='Uploading '+file.name+' ('+Math.round(file.size/1024)+' KB)…';
+  const form=new FormData();
+  form.append('file',file,'blocklist.bin');
+  try{
+    const r=await fetch('/api/upload',{method:'POST',body:form});
+    const d=await r.json();
+    msg.textContent=d.msg||(d.ok?'Success!':'Failed');
+    toast(msg.textContent,d.ok);
+    if(d.ok) pollStats();
+  }catch(_){ msg.textContent='Network error'; toast('Network error',false); }
+}
+
+// Start WebSocket
+connectWS();
+</script>
+</body>
+</html>
