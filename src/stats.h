@@ -2,16 +2,17 @@
 #include <Arduino.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// stats.h  –  Zero-allocation statistics counters + circular DNS query log
+// stats.h  –  Zero-allocation statistics counters + power-of-2 circular log
 //
 // New in this version:
-//   • rttHistory[30] — circular buffer of last 30 upstream RTT measurements
-//   • minRtt / maxRtt / totalRtt / rttCount — for min/avg/max display
-//   • rttMs field in QueryEntry — RTT for forwarded queries (0 = blocked/cached)
-//   • QUERY_LOG_SIZE bumped to 50
+//   • RTT_HIST_SIZE = 32 (power of 2) — bitwise AND indexing (no division)
+//   • QUERY_LOG_SIZE = 64 (power of 2) — bitwise AND indexing (no division)
+//   • Bounded memcpy for domain string copying
+//   • Pure integer scaled percentage & average calculations
 // ─────────────────────────────────────────────────────────────────────────────
 
-static const int QUERY_LOG_SIZE = 50;
+static const int QUERY_LOG_SIZE = 64;
+static const int RTT_HIST_SIZE  = 32;
 
 struct QueryEntry {
     char     domain[64];
@@ -34,35 +35,41 @@ struct Stats {
     uint64_t totalRtt  = 0;          // 64-bit to avoid overflow after millions of queries
     uint32_t rttCount  = 0;
 
-    // Circular RTT history — newest at rttHistHead - 1 (wraps)
-    uint16_t rttHistory[30];
+    // Circular RTT history — power of 2
+    uint16_t rttHistory[RTT_HIST_SIZE];
     int      rttHistHead  = 0;
     int      rttHistCount = 0;
 
-    // ── Circular query log — logHead is the NEXT write slot ───────────────
+    // ── Circular query log — power of 2 ───────────────────────────────────
     QueryEntry log[QUERY_LOG_SIZE];
     int        logHead  = 0;
     int        logCount = 0;
 
-    // Record a DNS decision (called in the hot path — no heap allocation)
-    void record(const char *domain, uint16_t qtype, bool blocked,
+    // Record a DNS decision (called in the hot path — bounded memcpy, no heap)
+    void record(const char *domain, size_t domLen, uint16_t qtype, bool blocked,
                 const char *clientIP, uint16_t rttMs = 0)
     {
         totalQueries++;
         if (blocked) blockedQueries++;
 
         QueryEntry &e = log[logHead];
-        strlcpy(e.domain,   domain,   sizeof(e.domain));
+        size_t cpy = domLen < 63 ? domLen : 63;
+        memcpy(e.domain, domain, cpy);
+        e.domain[cpy] = '\0';
         strlcpy(e.clientIP, clientIP, sizeof(e.clientIP));
         e.qtype     = qtype;
         e.blocked   = blocked;
         e.timestamp = millis();
         e.rttMs     = rttMs;
 
-        int next = logHead + 1;
-        if (next >= QUERY_LOG_SIZE) next = 0;
-        logHead = next;
+        logHead = (logHead + 1) & (QUERY_LOG_SIZE - 1);
         if (logCount < QUERY_LOG_SIZE) logCount++;
+    }
+
+    void record(const char *domain, uint16_t qtype, bool blocked,
+                const char *clientIP, uint16_t rttMs = 0)
+    {
+        record(domain, strlen(domain), qtype, blocked, clientIP, rttMs);
     }
 
     // Record upstream RTT (call when upstream response arrives)
@@ -74,10 +81,8 @@ struct Stats {
         rttCount++;
 
         rttHistory[rttHistHead] = val;
-        int next = rttHistHead + 1;
-        if (next >= 30) next = 0;
-        rttHistHead = next;
-        if (rttHistCount < 30) rttHistCount++;
+        rttHistHead = (rttHistHead + 1) & (RTT_HIST_SIZE - 1);
+        if (rttHistCount < RTT_HIST_SIZE) rttHistCount++;
     }
 
     uint32_t avgRtt() const {

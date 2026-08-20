@@ -192,24 +192,31 @@ void webUiSetup() {
 
     // ── GET /api/queries ──────────────────────────────────────────────────────
     webServer.on("/api/queries", HTTP_GET, [](AsyncWebServerRequest *req) {
-        String json = "[";
-        int idx = g_stats.logHead - 1;
-        if (idx < 0) idx = QUERY_LOG_SIZE - 1;
+        static char json[3072];
+        size_t offset = 0;
+        json[offset++] = '[';
+
+        int idx = (g_stats.logHead - 1) & (QUERY_LOG_SIZE - 1);
 
         for (int i = 0; i < g_stats.logCount; i++) {
             const QueryEntry &e = g_stats.log[idx];
-            if (i > 0) json += ",";
-            char entryBuf[256];
-            snprintf(entryBuf, sizeof(entryBuf),
+            if (i > 0 && offset < sizeof(json) - 1) json[offset++] = ',';
+            int written = snprintf(json + offset, sizeof(json) - offset,
                      R"({"d":"%s","t":%u,"b":%s,"ip":"%s","ts":%lu})",
                      e.domain, e.qtype, e.blocked ? "true" : "false",
                      e.clientIP, e.timestamp);
-            json += entryBuf;
-            idx--;
-            if (idx < 0) idx = QUERY_LOG_SIZE - 1;
+            if (written > 0 && offset + written < sizeof(json) - 2) {
+                offset += written;
+            } else {
+                break;
+            }
+            idx = (idx - 1) & (QUERY_LOG_SIZE - 1);
         }
-        json += "]";
-        _sendJson(req, 200, json.c_str());
+        if (offset < sizeof(json) - 1) {
+            json[offset++] = ']';
+            json[offset] = '\0';
+        }
+        _sendJson(req, 200, json);
     });
 
     // ── GET /api/mode ─────────────────────────────────────────────────────────
@@ -315,24 +322,30 @@ void webUiSetup() {
 
     // ── GET /api/clients ──────────────────────────────────────────────────────
     webServer.on("/api/clients", HTTP_GET, [](AsyncWebServerRequest *req) {
-        String json = "[";
+        static char json[1024];
+        size_t offset = 0;
+        json[offset++] = '[';
         bool first = true;
         for (int i = 0; i < CLIENT_TABLE_SIZE; i++) {
             if (g_clients[i].ip == 0) continue;
-            if (!first) json += ",";
-            char e[128];
+            if (!first && offset < sizeof(json) - 1) json[offset++] = ',';
             const uint32_t pct = g_clients[i].total
                 ? (g_clients[i].blocked * 100UL / g_clients[i].total) : 0;
-            snprintf(e, sizeof(e),
+            int written = snprintf(json + offset, sizeof(json) - offset,
                 R"({"ip":"%s","total":%lu,"blocked":%lu,"pct":%lu})",
                 g_clients[i].ipStr,
                 (unsigned long)g_clients[i].total,
                 (unsigned long)g_clients[i].blocked,
                 (unsigned long)pct);
-            json += e;
+            if (written > 0 && offset + written < sizeof(json) - 2) {
+                offset += written;
+            }
             first = false;
         }
-        json += "]";
+        if (offset < sizeof(json) - 1) {
+            json[offset++] = ']';
+            json[offset] = '\0';
+        }
         _sendJson(req, 200, json);
     });
 

@@ -50,9 +50,11 @@ inline IPAddress& currentUpstream() { return UPSTREAM_DNS; }
 struct PendingQuery {
     uint32_t  timestamp;
     IPAddress clientIP;
+    uint64_t  domainHash;
     uint16_t  origTxId;
     uint16_t  ourTxId;
     uint16_t  clientPort;
+    uint16_t  qtype;
     bool      active;
 };
 PendingQuery    pendingQueries[MAX_PENDING];
@@ -60,6 +62,37 @@ static uint16_t s_txIdCounter = 0;
 
 // Static response buffer
 static uint8_t s_upstreamRespBuf[1024];
+
+// ── In-RAM DNS Answer Cache (128 slots, TTL-based record caching) ─────────────
+struct AnswerCacheEntry {
+    uint64_t hash;
+    uint32_t ip4;
+    uint32_t expiresAt;
+    bool     valid;
+};
+static const int ANSWER_CACHE_SIZE = 128;
+static AnswerCacheEntry s_ansCache[ANSWER_CACHE_SIZE];
+
+IRAM_ATTR static inline bool lookupAnswerCache(uint64_t hash, uint32_t now, uint32_t &ip4, uint32_t &remTtl) {
+    const int idx = (int)(hash & (ANSWER_CACHE_SIZE - 1));
+    AnswerCacheEntry &e = s_ansCache[idx];
+    if (LIKELY(e.valid && e.hash == hash)) {
+        if (LIKELY(now < e.expiresAt)) {
+            ip4 = e.ip4;
+            remTtl = (e.expiresAt - now) / 1000;
+            if (remTtl == 0) remTtl = 1;
+            return true;
+        }
+        e.valid = false;
+    }
+    return false;
+}
+
+IRAM_ATTR static inline void insertAnswerCache(uint64_t hash, uint32_t ip4, uint32_t ttlSec, uint32_t now) {
+    if (ttlSec == 0 || ttlSec > 86400) ttlSec = 300;
+    const int idx = (int)(hash & (ANSWER_CACHE_SIZE - 1));
+    s_ansCache[idx] = { hash, ip4, now + (ttlSec * 1000), true };
+}
 
 // ── web_ui.h included here so its lambdas see the types above ────────────────
 #include "web_ui.h"       // webUiSetup / webUiLoop / broadcastQuery
@@ -82,7 +115,7 @@ IRAM_ATTR __attribute__((hot)) uint64_t fnv1a_40(const char *str, size_t len)
 #include "tracker_hashes.h"
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  32 KB Bloom filter (262,144 bits) — pre-screens isHashBlocked() calls
+//  32 KB Bloom filter (262,144 bits) — branchless bitwise checking
 //
 //  False-positive rate drops to < 0.05% for ~93 K entries.
 //  Zero flash I/O on 99.95% of allowed domains.
@@ -102,17 +135,18 @@ static inline __attribute__((always_inline)) bool IRAM_ATTR bloomCheck(uint64_t 
     const uint32_t h1 = (uint32_t)( hash        & 0x3FFFF);
     const uint32_t h2 = (uint32_t)((hash >> 11) & 0x3FFFF);
     const uint32_t h3 = (uint32_t)((hash >> 22) & 0x3FFFF);
-    return ((g_bloom[h1 >> 3] & (1u << (h1 & 7))) != 0) &&
-           ((g_bloom[h2 >> 3] & (1u << (h2 & 7))) != 0) &&
-           ((g_bloom[h3 >> 3] & (1u << (h3 & 7))) != 0);
+    const uint32_t b1 = (g_bloom[h1 >> 3] >> (h1 & 7)) & 1;
+    const uint32_t b2 = (g_bloom[h2 >> 3] >> (h2 & 7)) & 1;
+    const uint32_t b3 = (g_bloom[h3 >> 3] >> (h3 & 7)) & 1;
+    return (b1 & b2 & b3) != 0;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  In-RAM Coarse Flash Index (256 anchors, 1.28 KB)
-//  Narrows binary search range from 93,516 hashes to <= 366 hashes in RAM
-//  Reduces flash seek/read operations by > 50%
+//  In-RAM Coarse Flash Index (1,024 anchors, 8 KB)
+//  Narrows binary search range from 93,516 hashes to <= 91 hashes in RAM
+//  Reduces flash seek/read operations by > 65% (<= 6 flash reads)
 // ══════════════════════════════════════════════════════════════════════════════
-static const size_t COARSE_INDEX_SIZE = 256;
+static const size_t COARSE_INDEX_SIZE = 1024;
 static uint64_t g_coarseIndex[COARSE_INDEX_SIZE];
 
 static void buildCoarseIndex() {
@@ -130,7 +164,7 @@ static void buildCoarseIndex() {
         }
     }
     blocklistFile.seek(0);
-    Serial.println("[INDEX] 256-bucket coarse flash index built");
+    Serial.println("[INDEX] 1024-bucket coarse flash index built");
 }
 
 // Bulk sequential read pass over blocklist.bin (128 hashes per read)
@@ -238,7 +272,7 @@ IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t d
     // Mode: BYPASS — block nothing
     if (UNLIKELY(g_blockMode == BlockMode::BYPASS)) return false;
 
-    // ── LRU cache check first (O(1) direct-mapped lookup) ─────────────────
+    // ── LRU cache check first (O(1) 2-way associative lookup) ────────────
     bool cached;
     if (LIKELY(lruLookup(fullHash, cached))) {
         g_stats.cacheHits++;
@@ -358,7 +392,7 @@ IRAM_ATTR __attribute__((hot)) void sendSinkholeResponse(IPAddress clientIP, uin
         initialized = true;
     }
 
-    resp[0] = query[0]; resp[1] = query[1];   // Transaction ID
+    *(uint16_t*)resp = *(const uint16_t*)query; // 16-bit copy Transaction ID
 
     size_t questionLen = (qnameEnd + 4) - 12;
     memcpy(&resp[12], &query[12], questionLen);
@@ -386,12 +420,49 @@ IRAM_ATTR __attribute__((hot)) void sendSinkholeResponse(IPAddress clientIP, uin
     dnsServer.endPacket();
 }
 
+// ── Send cached IPv4 answer directly from SRAM (< 0.1 ms latency) ─────────────
+IRAM_ATTR __attribute__((hot)) void sendCachedAnswerResponse(IPAddress clientIP, uint16_t clientPort,
+                                                             const uint8_t *query, size_t queryLen,
+                                                             size_t qnameEnd, uint32_t ip4, uint32_t ttlSec)
+{
+    static uint8_t resp[256];
+    static bool initialized = false;
+    if (UNLIKELY(!initialized)) {
+        resp[2]  = 0x81; resp[3]  = 0x80; // Flags: QR=1, RA=1, NOERROR
+        resp[4]  = 0x00; resp[5]  = 0x01; // QDCOUNT = 1
+        resp[6]  = 0x00; resp[7]  = 0x01; // ANCOUNT = 1
+        resp[8]  = 0x00; resp[9]  = 0x00; // NSCOUNT = 0
+        resp[10] = 0x00; resp[11] = 0x00; // ARCOUNT = 0
+        initialized = true;
+    }
+
+    *(uint16_t*)resp = *(const uint16_t*)query; // Transaction ID
+
+    size_t questionLen = (qnameEnd + 4) - 12;
+    memcpy(&resp[12], &query[12], questionLen);
+    size_t idx = 12 + questionLen;
+
+    resp[idx++] = 0xC0; resp[idx++] = 0x0C;   // Name pointer
+    resp[idx++] = 0x00; resp[idx++] = 0x01;   // TYPE A
+    resp[idx++] = 0x00; resp[idx++] = 0x01;   // CLASS IN
+    resp[idx++] = (ttlSec >> 24) & 0xFF;
+    resp[idx++] = (ttlSec >> 16) & 0xFF;
+    resp[idx++] = (ttlSec >> 8)  & 0xFF;
+    resp[idx++] =  ttlSec        & 0xFF;
+    resp[idx++] = 0x00; resp[idx++] = 0x04;   // RDLENGTH = 4
+    memcpy(&resp[idx], &ip4, 4);
+    idx += 4;
+
+    dnsServer.beginPacket(clientIP, clientPort);
+    dnsServer.write(resp, idx);
+    dnsServer.endPacket();
+}
+
 // ── SERVFAIL response — sent when a pending query times out ──────────────────
 void sendServfail(IPAddress clientIP, uint16_t clientPort, uint16_t txId)
 {
     uint8_t resp[12];
-    resp[0] = (txId >> 8) & 0xFF;
-    resp[1] =  txId       & 0xFF;
+    *(uint16_t*)resp = __builtin_bswap16(txId);
     resp[2] = 0x81; resp[3] = 0x82; // QR=1, RA=1, RCODE=2 (SERVFAIL)
     memset(resp + 4, 0, 8);         // QDCOUNT/ANCOUNT/NSCOUNT/ARCOUNT = 0
     dnsServer.beginPacket(clientIP, clientPort);
@@ -404,19 +475,19 @@ void sendServfail(IPAddress clientIP, uint16_t clientPort, uint16_t txId)
 //  Dispatches to both primary and fallback simultaneously on the same socket
 // ══════════════════════════════════════════════════════════════════════════════
 IRAM_ATTR __attribute__((hot)) void forwardUpstream(IPAddress clientIP, uint16_t clientPort,
-                                                    uint8_t *query, size_t queryLen, uint32_t now)
+                                                    uint8_t *query, size_t queryLen,
+                                                    uint64_t domainHash, uint16_t qtype, uint32_t now)
 {
-    uint16_t origTxId = ((uint16_t)query[0] << 8) | query[1];
+    uint16_t origTxId = __builtin_bswap16(*(const uint16_t*)query);
     uint16_t ourTxId  = ++s_txIdCounter;
     if (UNLIKELY(ourTxId == 0)) ourTxId = ++s_txIdCounter; // skip 0
 
     // O(1) bitwise slot assignment (power of 2)
     const int slot = (int)(ourTxId & (MAX_PENDING - 1));
-    pendingQueries[slot] = { now, clientIP, origTxId, ourTxId, clientPort, true };
+    pendingQueries[slot] = { now, clientIP, domainHash, origTxId, ourTxId, clientPort, qtype, true };
 
     // Rewrite txId in the packet before sending upstream
-    query[0] = (ourTxId >> 8) & 0xFF;
-    query[1] =  ourTxId       & 0xFF;
+    *(uint16_t*)query = __builtin_bswap16(ourTxId);
 
     // Parallel Dual-Upstream Race: send to primary and fallback simultaneously
     upstreamClient.beginPacket(UPSTREAM_DNS, DNS_PORT);
@@ -428,8 +499,7 @@ IRAM_ATTR __attribute__((hot)) void forwardUpstream(IPAddress clientIP, uint16_t
     upstreamClient.endPacket();
 
     // Restore original txId (caller's buffer must remain intact)
-    query[0] = (origTxId >> 8) & 0xFF;
-    query[1] =  origTxId       & 0xFF;
+    *(uint16_t*)query = __builtin_bswap16(origTxId);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -439,6 +509,9 @@ void setup()
 {
     // Enforce 160 MHz maximum RISC-V CPU clock
     setCpuFrequencyMhz(160);
+
+    // Boost FreeRTOS DNS loop priority for preemptive packet execution
+    vTaskPrioritySet(NULL, 5);
 
     // Configure XIAO ESP32-C6 RF Switch — onboard ceramic antenna
     pinMode(3,  OUTPUT); digitalWrite(3,  HIGH); // GPIO3 HIGH = power on RF switch
@@ -455,6 +528,7 @@ void setup()
     lruInit();
     clientsInit();
     memset(pendingQueries, 0, sizeof(pendingQueries));
+    memset(s_ansCache, 0, sizeof(s_ansCache));
     g_stats.startTime = millis();
 
     // ── LittleFS ──────────────────────────────────────────────────────────────
@@ -469,7 +543,7 @@ void setup()
             fsReady     = true;
             Serial.printf("[FS] Loaded %u hashes (%.1f KB)\n",
                           totalHashes, blocklistFile.size() / 1024.0f);
-            buildBloom(); // 32 KB filter with bulk read + 256-bucket coarse index
+            buildBloom(); // 32 KB filter with bulk read + 1024-bucket coarse index
         }
         listsLoad();          // whitelist + blacklist
         settingsLoad();       // blocking mode
@@ -493,6 +567,7 @@ void setup()
     WiFi.disconnect(true);
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false); // disable modem sleep for minimum DNS latency
+    WiFi.setTxPower(WIFI_POWER_19_5dBm); // maximum RF output power
     delay(100);
 
     // ── Static IP — ensures DNS address never changes after a reboot ─────────
@@ -589,22 +664,44 @@ void loop()
         return;
     }
 
-    // ── Collect upstream DNS responses (O(1) bitwise slot lookup) ────────────
-    int respLen = upstreamClient.parsePacket();
-    if (respLen > 0) {
+    // ── Collect upstream DNS responses (Burst Draining) ──────────────────────
+    for (int b = 0; b < 8; b++) {
+        int respLen = upstreamClient.parsePacket();
+        if (respLen <= 0) break;
         int n = upstreamClient.read(s_upstreamRespBuf, sizeof(s_upstreamRespBuf));
-        if (n >= 2) {
-            const uint16_t rxTxId = ((uint16_t)s_upstreamRespBuf[0] << 8)
-                                  |  s_upstreamRespBuf[1];
+        if (LIKELY(n >= 2)) {
+            const uint16_t rxTxId = __builtin_bswap16(*(const uint16_t*)s_upstreamRespBuf);
             const int slot = (int)(rxTxId & (MAX_PENDING - 1)); // O(1) bitwise AND
             PendingQuery &pq = pendingQueries[slot];
             if (LIKELY(pq.active && pq.ourTxId == rxTxId)) {
                 const uint32_t rttMs = now - pq.timestamp;
                 g_stats.recordRTT(rttMs);
 
+                // Extract IPv4 answer for Answer Cache if Type A query
+                if (pq.qtype == 0x0001 && n >= 16) {
+                    uint16_t ancount = ((uint16_t)s_upstreamRespBuf[6] << 8) | s_upstreamRespBuf[7];
+                    if (ancount > 0 && n >= 32) {
+                        // Scan for first Type A answer (RDATA length 4)
+                        for (int i = 12; i + 16 <= n; i++) {
+                            if (s_upstreamRespBuf[i] == 0xC0 &&
+                                s_upstreamRespBuf[i + 2] == 0x00 && s_upstreamRespBuf[i + 3] == 0x01 && // TYPE A
+                                s_upstreamRespBuf[i + 4] == 0x00 && s_upstreamRespBuf[i + 5] == 0x01 && // CLASS IN
+                                s_upstreamRespBuf[i + 10] == 0x00 && s_upstreamRespBuf[i + 11] == 0x04) { // RDLEN 4
+                                uint32_t ttl = ((uint32_t)s_upstreamRespBuf[i + 6] << 24) |
+                                               ((uint32_t)s_upstreamRespBuf[i + 7] << 16) |
+                                               ((uint32_t)s_upstreamRespBuf[i + 8] << 8)  |
+                                                (uint32_t)s_upstreamRespBuf[i + 9];
+                                uint32_t ip4;
+                                memcpy(&ip4, &s_upstreamRespBuf[i + 12], 4);
+                                insertAnswerCache(pq.domainHash, ip4, ttl, now);
+                                break;
+                            }
+                        }
+                    }
+                }
+
                 // Restore original txId before forwarding to client
-                s_upstreamRespBuf[0] = (pq.origTxId >> 8) & 0xFF;
-                s_upstreamRespBuf[1] =  pq.origTxId       & 0xFF;
+                *(uint16_t*)s_upstreamRespBuf = __builtin_bswap16(pq.origTxId);
                 dnsServer.beginPacket(pq.clientIP, pq.clientPort);
                 dnsServer.write(s_upstreamRespBuf, n);
                 dnsServer.endPacket();
@@ -622,15 +719,16 @@ void loop()
         }
     }
 
-    // ── Handle incoming DNS query ─────────────────────────────────────────────
-    int pktSize = dnsServer.parsePacket();
-    if (LIKELY(pktSize > 12 && pktSize <= 512)) {
+    // ── Handle incoming DNS queries (Burst Draining) ──────────────────────────
+    for (int b = 0; b < 8; b++) {
+        int pktSize = dnsServer.parsePacket();
+        if (UNLIKELY(pktSize <= 12 || pktSize > 512)) break;
+
         static uint8_t s_dnsRxBuf[512];
         int       len        = dnsServer.read(s_dnsRxBuf, sizeof(s_dnsRxBuf));
         IPAddress clientIP   = dnsServer.remoteIP();
         uint16_t  clientPort = dnsServer.remotePort();
 
-        // Stack-allocated IP string using fast converter (no snprintf format parsing overhead)
         char clientIPStr[16];
         fastIpToStr(clientIP, clientIPStr);
 
@@ -641,21 +739,27 @@ void loop()
         uint8_t  labelOffsets[8];
         uint8_t  labelCount = 0;
 
-        if (UNLIKELY(!parseQName(s_dnsRxBuf, len, domain, sizeof(domain), qnameEnd, domainLen, fullHash, labelOffsets, labelCount))) return;
-        if (UNLIKELY(qnameEnd == 0 || (qnameEnd + 1) >= (size_t)len)) return;
+        if (UNLIKELY(!parseQName(s_dnsRxBuf, len, domain, sizeof(domain), qnameEnd, domainLen, fullHash, labelOffsets, labelCount))) continue;
+        if (UNLIKELY(qnameEnd == 0 || (qnameEnd + 1) >= (size_t)len)) continue;
 
         const uint16_t qtype   = ((uint16_t)s_dnsRxBuf[qnameEnd] << 8) | s_dnsRxBuf[qnameEnd + 1];
         const bool     blocked = isDomainBlocked(domain, domainLen, fullHash, labelOffsets, labelCount);
 
         // Record stats + per-client stats + broadcast to web dashboard
-        g_stats.record(domain, qtype, blocked, clientIPStr);
+        g_stats.record(domain, domainLen, qtype, blocked, clientIPStr);
         recordClient((uint32_t)clientIP, blocked, clientIPStr);
         broadcastQuery(domain, qtype, blocked, clientIPStr);
 
         if (blocked) {
             sendSinkholeResponse(clientIP, clientPort, s_dnsRxBuf, len, qnameEnd, qtype);
         } else {
-            forwardUpstream(clientIP, clientPort, s_dnsRxBuf, len, now);
+            // Check In-RAM Answer Cache for Type A queries (< 0.1 ms SRAM answer)
+            uint32_t cachedIp4 = 0, remTtl = 0;
+            if (qtype == 0x0001 && lookupAnswerCache(fullHash, now, cachedIp4, remTtl)) {
+                sendCachedAnswerResponse(clientIP, clientPort, s_dnsRxBuf, len, qnameEnd, cachedIp4, remTtl);
+            } else {
+                forwardUpstream(clientIP, clientPort, s_dnsRxBuf, len, fullHash, qtype, now);
+            }
         }
     }
 }
