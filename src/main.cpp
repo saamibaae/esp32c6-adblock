@@ -31,7 +31,7 @@ bool     fsReady     = false;
 //  DNS configuration — defined before web_ui.h so its lambdas can reference them
 // ══════════════════════════════════════════════════════════════════════════════
 IPAddress        UPSTREAM_DNS(1, 1, 1, 1);          // primary (user-configurable)
-IPAddress        UPSTREAM_DNS_FALLBACK(8, 8, 8, 8); // automatic fallback
+IPAddress        UPSTREAM_DNS_FALLBACK(8, 8, 8, 8); // fallback / parallel race
 const uint16_t   DNS_PORT        = 53;
 const int        MAX_PENDING     = 32;              // power of 2 for bitwise AND
 const uint32_t   QUERY_TIMEOUT   = 3000;            // ms
@@ -42,36 +42,9 @@ WiFiUDP upstreamClient;
 unsigned long lastHeartbeat        = 0;
 unsigned long lastReconnectAttempt = 0;
 
-// ── Dual-upstream failover state ──────────────────────────────────────────────
-bool g_usingFallback     = false;
-int  g_upstreamFailCount = 0;
-int  g_upstreamOkCount   = 0;
-
-IPAddress& currentUpstream() {
-    return g_usingFallback ? UPSTREAM_DNS_FALLBACK : UPSTREAM_DNS;
-}
-
-void notifyUpstreamSuccess() {
-    g_upstreamFailCount = 0;
-    if (UNLIKELY(g_usingFallback)) {
-        if (++g_upstreamOkCount >= 3) {
-            g_usingFallback   = false;
-            g_upstreamOkCount = 0;
-            Serial.printf("[DNS] Primary upstream restored: %s\n",
-                          UPSTREAM_DNS.toString().c_str());
-        }
-    }
-}
-
-void notifyUpstreamFailure() {
-    g_upstreamOkCount = 0;
-    if (++g_upstreamFailCount >= 5 && !g_usingFallback) {
-        g_usingFallback     = true;
-        g_upstreamFailCount = 0;
-        Serial.printf("[DNS] Switched to fallback upstream: %s\n",
-                      UPSTREAM_DNS_FALLBACK.toString().c_str());
-    }
-}
+// Dual-upstream status
+bool g_usingFallback = false;
+inline IPAddress& currentUpstream() { return UPSTREAM_DNS; }
 
 // ── Async pending query table (packed for cache locality) ────────────────────
 struct PendingQuery {
@@ -212,7 +185,9 @@ IRAM_ATTR __attribute__((hot)) bool isHashBlocked(uint64_t targetHash)
 // ══════════════════════════════════════════════════════════════════════════════
 //  DNS lookup pipeline with full priority chain and behavioral modes
 // ══════════════════════════════════════════════════════════════════════════════
-IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t domLen)
+IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t domLen,
+                                                    uint64_t fullHash,
+                                                    const uint8_t *labelOffsets, uint8_t labelCount)
 {
     // Mode: ABSOLUTE (Hailmary) — block EVERYTHING not whitelisted
     if (UNLIKELY(g_blockMode == BlockMode::ABSOLUTE)) {
@@ -221,8 +196,6 @@ IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t d
 
     // Mode: BYPASS — block nothing
     if (UNLIKELY(g_blockMode == BlockMode::BYPASS)) return false;
-
-    const uint64_t fullHash = fnv1a_40(domain, domLen);
 
     // ── LRU cache check first (O(1) direct-mapped lookup) ─────────────────
     bool cached;
@@ -251,7 +224,7 @@ IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t d
 
     // 3. Strict Mode: explicitly block all known major trackers (O(log N) IRAM binary search)
     if (g_blockMode == BlockMode::STRICT) {
-        if (domainMatchesSet(domain, domLen, g_strictTrackerHashes, TRACKER_COUNT)) {
+        if (domainMatchesSet(domain, domLen, fullHash, labelOffsets, labelCount, g_strictTrackerHashes, TRACKER_COUNT)) {
             lruInsert(fullHash, true);
             return true;
         }
@@ -259,25 +232,21 @@ IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t d
 
     // 4. Ensure essential services are never blocked (Normal & Strict modes)
     if (g_blockMode == BlockMode::NORMAL || g_blockMode == BlockMode::STRICT) {
-        if (domainMatchesSet(domain, domLen, g_essentialHashes, ESSENTIAL_COUNT)) {
+        if (domainMatchesSet(domain, domLen, fullHash, labelOffsets, labelCount, g_essentialHashes, ESSENTIAL_COUNT)) {
             lruInsert(fullHash, false);
             return false;
         }
     }
 
-    // 5. Binary search in LittleFS for domain + parent subdomains
-    const char  *base = domain;
-    const char  *cur  = base;
+    // 5. Binary search in LittleFS for domain + parent subdomains using precalculated label offsets
     bool blocked = false;
-
-    while (*cur) {
-        const size_t curLen = domLen - (size_t)(cur - base);
-        // Reuse precomputed fullHash on the first pass (cur == base)
-        const uint64_t h = (cur == base) ? fullHash : fnv1a_40(cur, curLen);
-        if (isHashBlocked(h)) { blocked = true; break; }
-        const char *dot = (const char*)memchr(cur, '.', curLen);
-        if (!dot) break;
-        cur = dot + 1;
+    for (uint8_t i = 0; i < labelCount; i++) {
+        const uint8_t off = labelOffsets[i];
+        const uint64_t h = (i == 0) ? fullHash : fnv1a_40(domain + off, domLen - off);
+        if (isHashBlocked(h)) {
+            blocked = true;
+            break;
+        }
     }
 
     // 6. Cache result for next lookup
@@ -286,50 +255,69 @@ IRAM_ATTR __attribute__((hot)) bool isDomainBlocked(const char *domain, size_t d
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  DNS packet parsing — normalizes to lowercase on the fly, zero allocation
+//  DNS packet parsing — single pass: case-normalizes, hashes, & finds labels
 // ══════════════════════════════════════════════════════════════════════════════
 IRAM_ATTR __attribute__((hot)) bool parseQName(const uint8_t *buf, size_t len,
                                               char *out, size_t outMax,
-                                              size_t &qnameEnd, size_t &outLen)
+                                              size_t &qnameEnd, size_t &outLen,
+                                              uint64_t &fullHash,
+                                              uint8_t *labelOffsets, uint8_t &labelCount)
 {
     size_t pos  = 12; // skip 12-byte DNS header
     size_t dpos = 0;
     out[0] = '\0';
+    labelCount = 0;
+    uint64_t hash = 0xcbf29ce484222325ULL;
 
     while (pos < len && buf[pos] != 0) {
         uint8_t llen = buf[pos++];
         if (UNLIKELY(pos + llen > len))          return false; // truncated
         if (UNLIKELY(dpos + llen + 2 > outMax))  return false; // overflow guard
-        if (dpos > 0) out[dpos++] = '.';
+
+        if (dpos > 0) {
+            out[dpos++] = '.';
+            hash ^= (unsigned char)'.';
+            hash *= 0x100000001b3ULL;
+        }
+        if (LIKELY(labelCount < 8)) {
+            labelOffsets[labelCount++] = (uint8_t)dpos;
+        }
         for (uint8_t i = 0; i < llen; i++) {
             unsigned char c = buf[pos + i];
             if (c >= 'A' && c <= 'Z') c += ('a' - 'A');
             out[dpos++] = c;
+            hash ^= c;
+            hash *= 0x100000001b3ULL;
         }
         pos += llen;
     }
     out[dpos] = '\0';
     outLen    = dpos;
     qnameEnd  = pos + 1; // +1 to step over the null label
+    fullHash  = hash & 0xFFFFFFFFFFULL;
     return dpos > 0;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  Sinkhole response — 0.0.0.0 (A) or :: (AAAA), TTL = 3600 s (1 hour cache)
-//  Optimized: static buffer, zero dynamic allocation, targeted byte writes
+//  Optimized: pre-initialized static template with targeted byte writes
 // ══════════════════════════════════════════════════════════════════════════════
 IRAM_ATTR __attribute__((hot)) void sendSinkholeResponse(IPAddress clientIP, uint16_t clientPort,
                                                          const uint8_t *query, size_t queryLen,
                                                          size_t qnameEnd, uint16_t qtype)
 {
     static uint8_t resp[256];
+    static bool initialized = false;
+    if (UNLIKELY(!initialized)) {
+        resp[2]  = 0x81; resp[3]  = 0x80; // Flags: QR=1, RA=1, NOERROR
+        resp[4]  = 0x00; resp[5]  = 0x01; // QDCOUNT = 1
+        resp[6]  = 0x00; resp[7]  = 0x01; // ANCOUNT = 1
+        resp[8]  = 0x00; resp[9]  = 0x00; // NSCOUNT = 0
+        resp[10] = 0x00; resp[11] = 0x00; // ARCOUNT = 0
+        initialized = true;
+    }
 
     resp[0] = query[0]; resp[1] = query[1];   // Transaction ID
-    resp[2] = 0x81;     resp[3] = 0x80;       // Flags: QR=1, RA=1, NOERROR
-    resp[4] = 0x00;     resp[5] = 0x01;       // QDCOUNT = 1
-    resp[6] = 0x00;     resp[7] = 0x01;       // ANCOUNT = 1
-    resp[8] = 0x00;     resp[9] = 0x00;       // NSCOUNT = 0
-    resp[10] = 0x00;    resp[11] = 0x00;      // ARCOUNT = 0
 
     size_t questionLen = (qnameEnd + 4) - 12;
     memcpy(&resp[12], &query[12], questionLen);
@@ -371,8 +359,8 @@ void sendServfail(IPAddress clientIP, uint16_t clientPort, uint16_t txId)
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  Non-blocking upstream forward
-//  O(1) slot: ourTxId & (MAX_PENDING - 1) — bitwise fast index
+//  Non-blocking upstream forward: Parallel Dual-Upstream DNS Racing
+//  Dispatches to both primary and fallback simultaneously on the same socket
 // ══════════════════════════════════════════════════════════════════════════════
 IRAM_ATTR __attribute__((hot)) void forwardUpstream(IPAddress clientIP, uint16_t clientPort,
                                                     uint8_t *query, size_t queryLen, uint32_t now)
@@ -389,7 +377,12 @@ IRAM_ATTR __attribute__((hot)) void forwardUpstream(IPAddress clientIP, uint16_t
     query[0] = (ourTxId >> 8) & 0xFF;
     query[1] =  ourTxId       & 0xFF;
 
-    upstreamClient.beginPacket(currentUpstream(), DNS_PORT);
+    // Parallel Dual-Upstream Race: send to primary and fallback simultaneously
+    upstreamClient.beginPacket(UPSTREAM_DNS, DNS_PORT);
+    upstreamClient.write(query, queryLen);
+    upstreamClient.endPacket();
+
+    upstreamClient.beginPacket(UPSTREAM_DNS_FALLBACK, DNS_PORT);
     upstreamClient.write(query, queryLen);
     upstreamClient.endPacket();
 
@@ -403,6 +396,9 @@ IRAM_ATTR __attribute__((hot)) void forwardUpstream(IPAddress clientIP, uint16_t
 // ══════════════════════════════════════════════════════════════════════════════
 void setup()
 {
+    // Enforce 160 MHz maximum RISC-V CPU clock
+    setCpuFrequencyMhz(160);
+
     // Configure XIAO ESP32-C6 RF Switch — onboard ceramic antenna
     pinMode(3,  OUTPUT); digitalWrite(3,  HIGH); // GPIO3 HIGH = power on RF switch
     pinMode(14, OUTPUT); digitalWrite(14, LOW);  // GPIO14 LOW = select onboard antenna
@@ -572,7 +568,6 @@ void loop()
                 dnsServer.write(s_upstreamRespBuf, n);
                 dnsServer.endPacket();
                 pq.active = false;
-                notifyUpstreamSuccess();
             }
         }
     }
@@ -583,7 +578,6 @@ void loop()
         if (UNLIKELY(pq.active && (now - pq.timestamp > QUERY_TIMEOUT))) {
             sendServfail(pq.clientIP, pq.clientPort, pq.origTxId);
             pq.active = false;
-            notifyUpstreamFailure();
         }
     }
 
@@ -599,15 +593,18 @@ void loop()
         char clientIPStr[16];
         fastIpToStr(clientIP, clientIPStr);
 
-        char   domain[128];
-        size_t qnameEnd = 0;
-        size_t domainLen = 0;
+        char     domain[128];
+        size_t   qnameEnd = 0;
+        size_t   domainLen = 0;
+        uint64_t fullHash = 0;
+        uint8_t  labelOffsets[8];
+        uint8_t  labelCount = 0;
 
-        if (UNLIKELY(!parseQName(buf, len, domain, sizeof(domain), qnameEnd, domainLen))) return;
+        if (UNLIKELY(!parseQName(buf, len, domain, sizeof(domain), qnameEnd, domainLen, fullHash, labelOffsets, labelCount))) return;
         if (UNLIKELY(qnameEnd == 0 || (qnameEnd + 1) >= (size_t)len)) return;
 
         const uint16_t qtype   = ((uint16_t)buf[qnameEnd] << 8) | buf[qnameEnd + 1];
-        const bool     blocked = isDomainBlocked(domain, domainLen);
+        const bool     blocked = isDomainBlocked(domain, domainLen, fullHash, labelOffsets, labelCount);
 
         // Record stats + per-client stats + broadcast to web dashboard
         g_stats.record(domain, qtype, blocked, clientIPStr);

@@ -36,6 +36,7 @@ IRAM_ATTR void recordClient(const IPAddress &ip, bool blocked, const char *ipStr
     int      evictSlot =  0;
     uint32_t oldest    = UINT32_MAX;
 
+    #pragma GCC unroll 16
     for (int i = 0; i < CLIENT_TABLE_SIZE; i++) {
         // Fast path: existing entry found
         if (g_clients[i].ip == key) {

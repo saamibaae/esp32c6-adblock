@@ -2,15 +2,15 @@
 #include <Arduino.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// lru_cache.h  –  256-entry direct-mapped cache keyed on 40-bit FNV-1a hash
+// lru_cache.h  –  1024-entry direct-mapped cache keyed on 40-bit FNV-1a hash
 //
 // O(1) lookup and insert: slot = hash & (LRU_CACHE_SIZE - 1) (fast bitwise AND).
 // Collisions overwrite the slot. Zero memory allocation, pinned to IRAM.
 //
-// Total RAM: 256 × 10 = 2 560 bytes
+// Total RAM: 1024 × 16 = 16 384 bytes
 // ─────────────────────────────────────────────────────────────────────────────
 
-static const int LRU_CACHE_SIZE = 256;
+static const int LRU_CACHE_SIZE = 1024;
 
 struct CacheEntry {
     uint64_t hash;    // 8 bytes — 40-bit FNV-1a domain hash

@@ -107,7 +107,8 @@ static inline void initTrackerHashes() {
 }
 
 // O(log N) binary search in sorted uint64_t array (IRAM pinned)
-IRAM_ATTR static inline bool isHashInSet(const uint64_t *arr, size_t size, uint64_t target) {
+// O(log N) binary search in sorted uint64_t array (IRAM pinned)
+IRAM_ATTR static inline __attribute__((always_inline)) bool isHashInSet(const uint64_t *arr, size_t size, uint64_t target) {
     int32_t low = 0, high = (int32_t)size - 1;
     while (low <= high) {
         int32_t mid = low + ((high - low) >> 1);
@@ -119,18 +120,14 @@ IRAM_ATTR static inline bool isHashInSet(const uint64_t *arr, size_t size, uint6
     return false;
 }
 
-// Walks domain + parent subdomain hashes and checks against sorted set
-IRAM_ATTR static inline bool domainMatchesSet(const char *domain, size_t domLen,
+// Walks domain + parent subdomain hashes using precomputed label offsets and checks against sorted set
+IRAM_ATTR static inline bool domainMatchesSet(const char *domain, size_t domLen, uint64_t fullHash,
+                                              const uint8_t *labelOffsets, uint8_t labelCount,
                                               const uint64_t *arr, size_t size) {
-    const char *base = domain;
-    const char *cur = base;
-    while (*cur) {
-        size_t curLen = domLen - (size_t)(cur - base);
-        uint64_t h = fnv1a_40(cur, curLen);
+    for (uint8_t i = 0; i < labelCount; i++) {
+        const uint8_t off = labelOffsets[i];
+        const uint64_t h = (i == 0) ? fullHash : fnv1a_40(domain + off, domLen - off);
         if (isHashInSet(arr, size, h)) return true;
-        const char *dot = (const char *)memchr(cur, '.', curLen);
-        if (!dot) break;
-        cur = dot + 1;
     }
     return false;
 }
