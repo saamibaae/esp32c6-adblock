@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DNS Sinkhole · ESP32-C6</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#070c18;--surface:#0d1424;--card:#111929;--border:#1e2d4a;
@@ -12,72 +15,44 @@
   --radius:12px;--gap:16px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;min-height:100vh;padding-bottom:40px}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;min-height:100vh;padding-bottom:48px}
 a{color:var(--accent);text-decoration:none}
 
-/* Header */
-header{background:linear-gradient(135deg,#0a1628 0%,#0f1e3d 50%,#0a1628 100%);border-bottom:1px solid var(--border);padding:18px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;backdrop-filter:blur(12px)}
-.logo{display:flex;align-items:center;gap:10px;font-size:1.25rem;font-weight:700;letter-spacing:-0.5px}
+/* ── Header ───────────────────────────────────────────────────────────── */
+header{
+  background:linear-gradient(135deg,#0a1628 0%,#0f1e3d 50%,#0a1628 100%);
+  border-bottom:1px solid var(--border);padding:16px 24px;
+  display:flex;align-items:center;justify-content:space-between;
+  position:sticky;top:0;z-index:100;backdrop-filter:blur(12px);
+  flex-wrap:wrap;gap:10px
+}
+.logo{display:flex;align-items:center;gap:10px;font-size:1.2rem;font-weight:800;letter-spacing:-0.5px}
 .logo span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.hdr-right{display:flex;align-items:center;gap:16px}
-.ip-badge{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:.85rem;font-family:'Courier New',monospace;color:var(--accent)}
-.ws-dot{width:10px;height:10px;border-radius:50%;background:var(--muted);transition:.3s;flex-shrink:0}
+.hdr-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr-badge{
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:5px 11px;font-size:.8rem;font-family:'Courier New',monospace;
+  color:var(--accent);white-space:nowrap;transition:color .3s
+}
+.hdr-badge.warn{color:var(--yellow)}
+.hdr-badge.danger{color:var(--red)}
+.ws-dot{width:9px;height:9px;border-radius:50%;background:var(--muted);transition:.3s;flex-shrink:0}
 .ws-dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}
 .ws-dot.err{background:var(--red);box-shadow:0 0 8px var(--red)}
 
-/* Layout */
-.container{max-width:1200px;margin:0 auto;padding:24px var(--gap)}
+/* ── Layout ───────────────────────────────────────────────────────────── */
+.container{max-width:1280px;margin:0 auto;padding:24px var(--gap)}
 
-/* Stats grid */
-.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--gap);margin-bottom:24px}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 18px;position:relative;overflow:hidden;transition:transform .2s,border-color .2s;cursor:default}
-.stat-card:hover{transform:translateY(-2px);border-color:var(--accent)}
-.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:.6}
-.stat-card.red::before{background:linear-gradient(90deg,var(--red),#fb923c)}
-.stat-card.green::before{background:linear-gradient(90deg,var(--green),var(--accent))}
-.stat-val{font-size:1.9rem;font-weight:800;letter-spacing:-1px;line-height:1.1;margin-bottom:4px;background:linear-gradient(135deg,var(--text),var(--muted2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.stat-val.v-red{background:linear-gradient(135deg,var(--red),#fb923c);-webkit-background-clip:text;background-clip:text}
-.stat-val.v-green{background:linear-gradient(135deg,var(--green),var(--accent));-webkit-background-clip:text;background-clip:text}
-.stat-lbl{font-size:.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
-.stat-sub{font-size:.72rem;color:var(--muted);margin-top:4px}
-
-/* Panel */
-.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:24px}
-.panel-header{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:.9rem}
-.panel-header .badge{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.75rem;color:var(--muted2)}
-
-/* Feed table */
-.feed-wrap{overflow-x:auto;max-height:420px;overflow-y:auto}
-.feed-wrap::-webkit-scrollbar{width:6px;height:6px}
-.feed-wrap::-webkit-scrollbar-track{background:transparent}
-.feed-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
-table{width:100%;border-collapse:collapse;font-size:.85rem}
-thead th{padding:10px 16px;text-align:left;font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600;position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--border)}
-tbody tr{border-bottom:1px solid rgba(30,45,74,.5);transition:background .15s}
-tbody tr:hover{background:rgba(34,211,238,.04)}
-tbody tr.new-row{animation:slideIn .3s ease-out}
-@keyframes slideIn{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:translateX(0)}}
-td{padding:9px 16px;vertical-align:middle}
-.td-domain{font-family:'Courier New',monospace;font-size:.82rem;color:var(--text);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.td-type{font-size:.75rem;color:var(--muted2);font-family:monospace}
-.pill{display:inline-flex;align-items:center;gap:4px;font-size:.72rem;font-weight:700;border-radius:20px;padding:3px 10px;letter-spacing:.4px}
-.pill-blocked{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.3)}
-.pill-allowed{background:rgba(74,222,128,.12);color:var(--green);border:1px solid rgba(74,222,128,.25)}
-.pill-cached{background:rgba(251,191,36,.12);color:var(--yellow);border:1px solid rgba(251,191,36,.25)}
-.td-time{font-size:.75rem;color:var(--muted);white-space:nowrap}
-.empty-row td{text-align:center;color:var(--muted);padding:32px;font-size:.85rem}
-
-/* Tabs */
-.tabs{display:flex;gap:2px;padding:6px 6px 0;border-bottom:1px solid var(--border)}
-.tab-btn{background:none;border:none;color:var(--muted);padding:9px 18px;cursor:pointer;font-size:.85rem;font-weight:500;border-radius:8px 8px 0 0;transition:.15s;border:1px solid transparent;border-bottom:none;position:relative;top:1px}
-.tab-btn:hover{color:var(--text);background:rgba(255,255,255,.04)}
-.tab-btn.active{color:var(--accent);background:var(--card);border-color:var(--border);font-weight:600}
-.tab-pane{display:none;padding:20px}
-.tab-pane.active{display:block}
-
-/* Mode Selector */
-.mode-sel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
-.mode-title{font-size:.9rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
+/* ── Mode selector ────────────────────────────────────────────────────── */
+.mode-sel{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);padding:14px 20px;margin-bottom:20px;
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px
+}
+.mode-title{font-size:.9rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px}
+.mode-title .shield{display:inline-block;transition:transform .3s}
+.mode-title .shield.pulse{animation:shieldPulse .4s ease-out}
+@keyframes shieldPulse{0%{transform:scale(1)}50%{transform:scale(1.25)}100%{transform:scale(1)}}
 .mode-opts{display:flex;background:var(--card);border-radius:8px;padding:4px;border:1px solid var(--border)}
 .mode-opt{background:transparent;border:none;color:var(--muted);padding:6px 14px;border-radius:6px;font-size:.8rem;font-weight:600;cursor:pointer;transition:.2s}
 .mode-opt:hover{color:var(--text)}
@@ -86,45 +61,170 @@ td{padding:9px 16px;vertical-align:middle}
 .mode-opt.active-1{background:var(--green);color:#0a0f1e}
 .mode-opt.active-3{background:#fb923c;color:#0a0f1e}
 .mode-opt.active-4{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
-.mode-desc{font-size:.8rem;color:var(--muted2);width:100%;margin-top:4px}
+.mode-desc{font-size:.8rem;color:var(--muted2);width:100%;margin-top:2px}
 
-/* List management */
+/* ── Stats grid ───────────────────────────────────────────────────────── */
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:var(--gap);margin-bottom:20px}
+.stat-card{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:18px 16px;position:relative;overflow:hidden;
+  transition:transform .2s,border-color .3s;cursor:default
+}
+.stat-card:hover{transform:translateY(-2px);border-color:var(--accent)}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:.6}
+.stat-card.red::before{background:linear-gradient(90deg,var(--red),#fb923c)}
+.stat-card.green::before{background:linear-gradient(90deg,var(--green),var(--accent))}
+.stat-card.purple::before{background:linear-gradient(90deg,var(--accent2),#c084fc)}
+.stat-card.yellow::before{background:linear-gradient(90deg,var(--yellow),#fb923c)}
+.stat-val{
+  font-size:1.75rem;font-weight:800;letter-spacing:-1px;line-height:1.1;margin-bottom:3px;
+  background:linear-gradient(135deg,var(--text),var(--muted2));-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;background-clip:text;transition:opacity .15s
+}
+.stat-val.v-red{background:linear-gradient(135deg,var(--red),#fb923c);-webkit-background-clip:text;background-clip:text}
+.stat-val.v-green{background:linear-gradient(135deg,var(--green),var(--accent));-webkit-background-clip:text;background-clip:text}
+.stat-val.v-purple{background:linear-gradient(135deg,var(--accent2),#c084fc);-webkit-background-clip:text;background-clip:text}
+.stat-val.v-yellow{background:linear-gradient(135deg,var(--yellow),#fb923c);-webkit-background-clip:text;background-clip:text}
+.stat-lbl{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
+.stat-sub{font-size:.7rem;color:var(--muted);margin-top:3px}
+
+/* ── RTT Sparkline ────────────────────────────────────────────────────── */
+.spark-panel{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:14px 20px;margin-bottom:20px;
+}
+.spark-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.spark-title{font-size:.8rem;font-weight:600;color:var(--muted2);text-transform:uppercase;letter-spacing:.7px}
+.spark-labels{display:flex;gap:16px;font-size:.72rem;color:var(--muted)}
+.spark-label span{color:var(--text);font-weight:600}
+#rttSpark{width:100%;height:56px;display:block;overflow:visible}
+.spark-footer{display:flex;justify-content:space-between;font-size:.68rem;color:var(--muted);margin-top:4px}
+
+/* ── Panel ────────────────────────────────────────────────────────────── */
+.panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
+.panel-header{display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid var(--border);font-weight:600;font-size:.9rem}
+.panel-header .badge{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:2px 8px;font-size:.73rem;color:var(--muted2)}
+
+/* ── Feed controls ────────────────────────────────────────────────────── */
+.feed-controls{
+  display:flex;align-items:center;gap:8px;padding:10px 16px;
+  border-bottom:1px solid var(--border);flex-wrap:wrap
+}
+.feed-filter{
+  flex:1;min-width:140px;background:var(--surface);border:1px solid var(--border);
+  border-radius:7px;padding:7px 12px;color:var(--text);font-size:.82rem;
+  outline:none;font-family:'Inter',sans-serif;transition:border-color .2s
+}
+.feed-filter:focus{border-color:var(--accent)}
+.feed-filter::placeholder{color:var(--muted)}
+.type-btns{display:flex;background:var(--surface);border-radius:7px;padding:3px;border:1px solid var(--border);gap:2px}
+.type-btn{background:transparent;border:none;color:var(--muted);padding:5px 12px;border-radius:5px;font-size:.75rem;font-weight:600;cursor:pointer;transition:.15s}
+.type-btn:hover{color:var(--text)}
+.type-btn.active{background:var(--accent);color:#0a0f1e}
+.type-btn.active-blocked{background:var(--red);color:#fff}
+.type-btn.active-allowed{background:var(--green);color:#0a0f1e}
+.pause-btn{
+  background:var(--surface);border:1px solid var(--border);border-radius:7px;
+  color:var(--muted2);padding:6px 13px;font-size:.78rem;font-weight:600;
+  cursor:pointer;transition:.2s;white-space:nowrap
+}
+.pause-btn:hover{color:var(--text);border-color:var(--accent)}
+.pause-btn.paused{background:rgba(251,191,36,.12);color:var(--yellow);border-color:rgba(251,191,36,.4)}
+
+/* ── Feed table ───────────────────────────────────────────────────────── */
+.feed-wrap{overflow-x:auto;max-height:400px;overflow-y:auto}
+.feed-wrap::-webkit-scrollbar{width:6px;height:6px}
+.feed-wrap::-webkit-scrollbar-track{background:transparent}
+.feed-wrap::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+table{width:100%;border-collapse:collapse;font-size:.84rem}
+thead th{
+  padding:9px 16px;text-align:left;font-size:.7rem;color:var(--muted);
+  text-transform:uppercase;letter-spacing:.8px;font-weight:600;
+  position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--border)
+}
+tbody tr{border-bottom:1px solid rgba(30,45,74,.5);transition:background .15s}
+tbody tr:hover{background:rgba(34,211,238,.04)}
+tbody tr.new-row{animation:slideIn .25s ease-out}
+tbody tr.row-blocked td:first-child{border-left:3px solid var(--red);padding-left:13px}
+tbody tr.row-allowed td:first-child{border-left:3px solid rgba(74,222,128,.4);padding-left:13px}
+@keyframes slideIn{from{opacity:0;transform:translateX(6px)}to{opacity:1;transform:translateX(0)}}
+td{padding:8px 16px;vertical-align:middle}
+.td-domain{font-family:'Courier New',monospace;font-size:.81rem;color:var(--text);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-type{font-size:.74rem;color:var(--muted2);font-family:monospace}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:.7rem;font-weight:700;border-radius:20px;padding:3px 9px;letter-spacing:.4px}
+.pill-blocked{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.3)}
+.pill-allowed{background:rgba(74,222,128,.1);color:var(--green);border:1px solid rgba(74,222,128,.22)}
+.td-time{font-size:.73rem;color:var(--muted);white-space:nowrap}
+.empty-row td{text-align:center;color:var(--muted);padding:36px;font-size:.85rem}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────── */
+.tabs{display:flex;gap:2px;padding:6px 6px 0;border-bottom:1px solid var(--border)}
+.tab-btn{background:none;border:none;color:var(--muted);padding:9px 18px;cursor:pointer;font-size:.84rem;font-weight:500;border-radius:8px 8px 0 0;transition:.15s;border:1px solid transparent;border-bottom:none;position:relative;top:1px}
+.tab-btn:hover{color:var(--text);background:rgba(255,255,255,.04)}
+.tab-btn.active{color:var(--accent);background:var(--card);border-color:var(--border);font-weight:600}
+.tab-pane{display:none;padding:20px}
+.tab-pane.active{display:block}
+
+/* ── Lists ────────────────────────────────────────────────────────────── */
 .add-form{display:flex;gap:8px;margin-bottom:16px}
-.add-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:.875rem;outline:none;font-family:'Courier New',monospace;transition:border-color .2s}
+.add-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 13px;color:var(--text);font-size:.875rem;outline:none;font-family:'Courier New',monospace;transition:border-color .2s}
 .add-form input:focus{border-color:var(--accent)}
 .add-form input::placeholder{color:var(--muted)}
-.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#0a0f1e;padding:10px 18px;font-size:.85rem;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap}
+.btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#0a0f1e;padding:9px 18px;font-size:.84rem;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap}
 .btn:hover{opacity:.85;transform:translateY(-1px)}
 .btn:active{transform:translateY(0)}
-.btn-sm{padding:5px 12px;font-size:.75rem;border-radius:6px}
+.btn-sm{padding:6px 13px;font-size:.76rem;border-radius:7px}
 .btn-danger{background:linear-gradient(135deg,var(--red),#fb923c);color:#fff}
 .list-entries{display:flex;flex-wrap:wrap;gap:8px;min-height:40px}
-.domain-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:.8rem;font-family:'Courier New',monospace;color:var(--muted2)}
+.domain-chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:.79rem;font-family:'Courier New',monospace;color:var(--muted2)}
 .chip-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;line-height:1;padding:0;transition:.15s}
 .chip-del:hover{color:var(--red)}
-.empty-list{color:var(--muted);font-size:.85rem;padding:8px 0}
+.empty-list{color:var(--muted);font-size:.84rem;padding:8px 0}
 
-/* Maintenance */
+/* ── Clients table ────────────────────────────────────────────────────── */
+.clients-wrap{overflow-x:auto}
+.clients-wrap table tbody tr td:first-child{border-left:none;padding-left:16px}
+.pct-bar-wrap{display:flex;align-items:center;gap:8px}
+.pct-bar-bg{flex:1;background:var(--surface);border-radius:4px;height:5px;overflow:hidden}
+.pct-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--red),#fb923c);transition:width .4s}
+.pct-text{font-size:.75rem;color:var(--muted2);white-space:nowrap;min-width:36px;text-align:right}
+
+/* ── Maintenance ──────────────────────────────────────────────────────── */
 .maint-section{margin-bottom:28px}
-.maint-section h3{font-size:.9rem;font-weight:600;margin-bottom:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.6px}
+.maint-section h3{font-size:.84rem;font-weight:700;margin-bottom:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.6px}
 .url-form{display:flex;gap:8px}
-.url-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:.85rem;outline:none;transition:border-color .2s}
+.url-form input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:9px 13px;color:var(--text);font-size:.84rem;outline:none;transition:border-color .2s}
 .url-form input:focus{border-color:var(--accent)}
 .ota-bar-wrap{margin-top:10px;display:none}
-.ota-bar-bg{background:var(--surface);border-radius:6px;height:8px;overflow:hidden;border:1px solid var(--border)}
+.ota-bar-bg{background:var(--surface);border-radius:6px;height:7px;overflow:hidden;border:1px solid var(--border)}
 .ota-bar{background:linear-gradient(90deg,var(--accent),var(--accent2));height:100%;border-radius:6px;transition:width .4s;width:0%}
-.ota-msg{font-size:.8rem;color:var(--muted);margin-top:6px}
-.upload-label{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:2px dashed var(--border);border-radius:10px;padding:16px 24px;cursor:pointer;font-size:.85rem;color:var(--muted2);transition:.2s}
+.ota-msg{font-size:.79rem;color:var(--muted);margin-top:6px}
+.upload-label{display:inline-flex;align-items:center;gap:8px;background:var(--surface);border:2px dashed var(--border);border-radius:10px;padding:14px 22px;cursor:pointer;font-size:.84rem;color:var(--muted2);transition:.2s}
 .upload-label:hover{border-color:var(--accent);color:var(--text)}
 .upload-label input{display:none}
-.info-box{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.2);border-radius:10px;padding:14px 18px;font-size:.82rem;color:var(--muted2);line-height:1.6;margin-top:8px}
+.info-box{background:rgba(34,211,238,.07);border:1px solid rgba(34,211,238,.2);border-radius:10px;padding:13px 17px;font-size:.81rem;color:var(--muted2);line-height:1.65;margin-top:6px}
 .info-box code{color:var(--accent);font-family:'Courier New',monospace;background:rgba(34,211,238,.1);padding:1px 6px;border-radius:4px}
 
-/* Toast */
-.toast{position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.85rem;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:999;transition:opacity .3s,transform .3s;opacity:0;transform:translateY(8px);pointer-events:none}
+/* ── DNS presets ──────────────────────────────────────────────────────── */
+.dns-presets{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.dns-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--muted2);padding:7px 15px;font-size:.8rem;font-weight:600;cursor:pointer;transition:.2s;font-family:'Inter',sans-serif}
+.dns-btn:hover{border-color:var(--accent);color:var(--accent)}
+.dns-btn.active-dns{border-color:var(--accent);color:var(--accent);background:rgba(34,211,238,.08)}
+
+/* ── Toast ────────────────────────────────────────────────────────────── */
+.toast{position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid var(--border);border-radius:10px;padding:12px 20px;font-size:.84rem;color:var(--text);box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:999;transition:opacity .3s,transform .3s;opacity:0;transform:translateY(8px);pointer-events:none}
 .toast.show{opacity:1;transform:translateY(0)}
 .toast.ok{border-left:3px solid var(--green)}
 .toast.fail{border-left:3px solid var(--red)}
+
+/* ── Mobile responsive ────────────────────────────────────────────────── */
+@media(max-width:620px){
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .mode-opts{flex-wrap:wrap}
+  .feed-controls{gap:6px}
+  .tabs{overflow-x:auto}
+  .tab-btn{padding:9px 12px;font-size:.8rem}
+}
 </style>
 </head>
 <body>
@@ -132,17 +232,18 @@ td{padding:9px 16px;vertical-align:middle}
 <header>
   <div class="logo">🛡 <span>DNS Sinkhole</span></div>
   <div class="hdr-right">
-    <div class="ip-badge" id="wifiBadge" style="display:none; color:var(--text); border-color:var(--muted2);">WiFi: ...</div>
-    <div class="ip-badge" id="myIp">IP: ...</div>
+    <div class="hdr-badge" id="upstreamBadge" style="display:none">⬆ …</div>
+    <div class="hdr-badge" id="wifiBadge" style="display:none">📶 …</div>
+    <div class="hdr-badge" id="myIp">IP: …</div>
     <div class="ws-dot err" id="wsDot"></div>
   </div>
 </header>
 
 <div class="container">
 
-  <!-- Mode Selector -->
+  <!-- Mode selector -->
   <div class="mode-sel">
-    <div class="mode-title">🛡️ Shield Level</div>
+    <div class="mode-title"><span class="shield" id="shield">🛡️</span> Shield Level</div>
     <div class="mode-opts" id="modeOpts">
       <button class="mode-opt" onclick="setMode(0)" data-m="0">Bypass</button>
       <button class="mode-opt" onclick="setMode(1)" data-m="1">Minimal</button>
@@ -175,10 +276,37 @@ td{padding:9px 16px;vertical-align:middle}
       <div class="stat-val" id="sHeap">—</div>
       <div class="stat-lbl">Free Heap</div>
     </div>
+    <div class="stat-card purple">
+      <div class="stat-val v-purple" id="sAvgRtt">—</div>
+      <div class="stat-lbl">Avg DNS RTT</div>
+      <div class="stat-sub" id="sRttRange"></div>
+    </div>
     <div class="stat-card">
       <div class="stat-val" id="sCache">0</div>
       <div class="stat-lbl">Cache Hits</div>
       <div class="stat-sub" id="sHashes"></div>
+    </div>
+    <div class="stat-card yellow">
+      <div class="stat-val v-yellow" id="sPending">0</div>
+      <div class="stat-lbl">Pending</div>
+      <div class="stat-sub">upstream queries</div>
+    </div>
+  </div>
+
+  <!-- RTT Sparkline -->
+  <div class="spark-panel" id="sparkPanel" style="display:none">
+    <div class="spark-header">
+      <span class="spark-title">⚡ Upstream DNS Latency</span>
+      <div class="spark-labels">
+        <span>Min: <span id="sMinRtt">—</span> ms</span>
+        <span>Avg: <span id="sAvgRtt2">—</span> ms</span>
+        <span>Max: <span id="sMaxRtt">—</span> ms</span>
+      </div>
+    </div>
+    <svg id="rttSpark" preserveAspectRatio="none"></svg>
+    <div class="spark-footer">
+      <span>← older</span>
+      <span>latest →</span>
     </div>
   </div>
 
@@ -187,6 +315,16 @@ td{padding:9px 16px;vertical-align:middle}
     <div class="panel-header">
       <span>⚡ Live Query Feed</span>
       <span class="badge" id="feedCount">0 queries</span>
+    </div>
+    <div class="feed-controls">
+      <input class="feed-filter" id="feedFilter" type="text"
+             placeholder="🔍 Filter by domain…" oninput="renderFeed(false)" autocomplete="off">
+      <div class="type-btns">
+        <button class="type-btn active" data-f="all" onclick="setTypeFilter('all',this)">All</button>
+        <button class="type-btn" data-f="blocked" onclick="setTypeFilter('blocked',this)">Blocked</button>
+        <button class="type-btn" data-f="allowed" onclick="setTypeFilter('allowed',this)">Allowed</button>
+      </div>
+      <button class="pause-btn" id="pauseBtn" onclick="togglePause()">⏸ Pause</button>
     </div>
     <div class="feed-wrap">
       <table>
@@ -211,9 +349,11 @@ td{padding:9px 16px;vertical-align:middle}
     <div class="tabs">
       <button class="tab-btn active" onclick="switchTab('whitelist',this)">✅ Whitelist</button>
       <button class="tab-btn" onclick="switchTab('blacklist',this)">🚫 Blacklist</button>
+      <button class="tab-btn" onclick="switchTab('clients',this)">📊 Clients</button>
       <button class="tab-btn" onclick="switchTab('maint',this)">🔧 Maintenance</button>
     </div>
 
+    <!-- Whitelist tab -->
     <div id="tab-whitelist" class="tab-pane active">
       <div class="add-form">
         <input id="wlInput" type="text" placeholder="e.g. github.com" autocomplete="off" spellcheck="false"
@@ -223,6 +363,7 @@ td{padding:9px 16px;vertical-align:middle}
       <div class="list-entries" id="wlList"><span class="empty-list">Loading…</span></div>
     </div>
 
+    <!-- Blacklist tab -->
     <div id="tab-blacklist" class="tab-pane">
       <div class="add-form">
         <input id="blInput" type="text" placeholder="e.g. ads.evil.com" autocomplete="off" spellcheck="false"
@@ -232,7 +373,42 @@ td{padding:9px 16px;vertical-align:middle}
       <div class="list-entries" id="blList"><span class="empty-list">Loading…</span></div>
     </div>
 
+    <!-- Clients tab -->
+    <div id="tab-clients" class="tab-pane">
+      <div class="clients-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Client IP</th>
+              <th>Total</th>
+              <th>Blocked</th>
+              <th>Block Rate</th>
+            </tr>
+          </thead>
+          <tbody id="clientsBody">
+            <tr class="empty-row"><td colspan="4">No client data yet…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Maintenance tab -->
     <div id="tab-maint" class="tab-pane">
+
+      <div class="maint-section">
+        <h3>🌐 Upstream DNS Server</h3>
+        <div class="dns-presets" id="dnsPresets">
+          <button class="dns-btn" data-dns="1.1.1.1" onclick="setDns('1.1.1.1',this)">☁ Cloudflare 1.1.1.1</button>
+          <button class="dns-btn" data-dns="1.0.0.1" onclick="setDns('1.0.0.1',this)">☁ Cloudflare 1.0.0.1</button>
+          <button class="dns-btn" data-dns="8.8.8.8" onclick="setDns('8.8.8.8',this)">🔍 Google 8.8.8.8</button>
+          <button class="dns-btn" data-dns="9.9.9.9" onclick="setDns('9.9.9.9',this)">🛡 Quad9 9.9.9.9</button>
+        </div>
+        <div class="url-form">
+          <input id="dnsCustom" type="text" placeholder="Custom IP e.g. 94.140.14.14">
+          <button class="btn btn-sm" onclick="setDnsCustom()">Set</button>
+        </div>
+        <div class="ota-msg" id="dnsMsg"></div>
+      </div>
 
       <div class="maint-section">
         <h3>📦 Update Blocklist from URL</h3>
@@ -260,8 +436,15 @@ td{padding:9px 16px;vertical-align:middle}
         <div class="info-box">
           Flash new firmware wirelessly using PlatformIO:<br>
           <code>pio run -t upload --upload-port 192.168.0.247</code><br><br>
-          Or use the Arduino IDE Network upload with hostname <code>dns-sinkhole</code> and password <code>dnshole</code>.
+          Or use the Arduino IDE Network upload with hostname <code>dns-sinkhole</code>
+          and password <code>dnshole</code>.
         </div>
+      </div>
+
+      <div class="maint-section">
+        <h3>🔁 Reboot Device</h3>
+        <button class="btn btn-danger btn-sm" onclick="confirmReboot()">Reboot ESP32</button>
+        <div class="ota-msg" id="rebootMsg"></div>
       </div>
 
     </div>
@@ -269,19 +452,22 @@ td{padding:9px 16px;vertical-align:middle}
 
 </div>
 
-<!-- Toast notification -->
+<!-- Toast -->
 <div class="toast" id="toast"></div>
 
 <script>
-// ─── State ──────────────────────────────────────────────────────────────────
+// ─── State ───────────────────────────────────────────────────────────────────
 let ws = null, wsRetry = 0;
 let queries = [];
 let wlData = [], blData = [];
+let paused = false;
+let typeFilter = 'all';
+let lastStats = null;
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
 function fmtUptime(s){
-  if(s<60) return s+'s';
-  if(s<3600) return Math.floor(s/60)+'m '+( s%60)+'s';
+  if(s<60)   return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m '+(s%60)+'s';
   return Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m';
 }
 function fmtBytes(b){
@@ -295,7 +481,7 @@ function fmtNum(n){
 }
 function timeAgo(ts){
   let d=Math.floor((Date.now()-ts)/1000);
-  if(d<5) return 'now';
+  if(d<5)  return 'now';
   if(d<60) return d+'s ago';
   return Math.floor(d/60)+'m ago';
 }
@@ -320,61 +506,88 @@ function switchTab(name,btn){
   btn.classList.add('active');
   if(name==='whitelist') renderList('whitelist');
   if(name==='blacklist') renderList('blacklist');
+  if(name==='clients')   loadClients();
 }
 
-// ─── WebSocket ────────────────────────────────────────────────────────────────
+// ─── WebSocket ─────────────────────────────────────────────────────────────────
 function connectWS(){
   ws=new WebSocket(`ws://${location.host}/ws`);
   ws.onopen=()=>{ document.getElementById('wsDot').className='ws-dot ok'; wsRetry=0; };
   ws.onclose=()=>{ document.getElementById('wsDot').className='ws-dot err';
-    setTimeout(connectWS, Math.min(1000*(++wsRetry),10000)); };
-  ws.onmessage=(e)=>{
-    try{ addQuery(JSON.parse(e.data)); }catch(_){}
-  };
+    setTimeout(connectWS,Math.min(1000*(++wsRetry),10000)); };
+  ws.onmessage=(e)=>{ try{ onQueryEvent(JSON.parse(e.data)); }catch(_){} };
 }
 
-// ─── Feed ────────────────────────────────────────────────────────────────────
-function addQuery(q){
-  q._ts=Date.now()-(milliOffset||0);  // align to wall clock
+// ─── Live feed ────────────────────────────────────────────────────────────────
+function onQueryEvent(q){
+  if(paused) return;
+  q._ts=Date.now();
   queries.unshift(q);
-  if(queries.length>30) queries.pop();
+  if(queries.length>50) queries.pop();
   renderFeed(true);
 }
 
-let milliOffset=0;
+function setTypeFilter(f,btn){
+  typeFilter=f;
+  document.querySelectorAll('.type-btn').forEach(b=>{
+    b.className='type-btn'+(b.dataset.f===f?' active active-'+f:'');
+  });
+  renderFeed(false);
+}
+
+function togglePause(){
+  paused=!paused;
+  const btn=document.getElementById('pauseBtn');
+  btn.textContent=paused?'▶ Resume':'⏸ Pause';
+  btn.classList.toggle('paused',paused);
+}
+
+function getFiltered(){
+  const text=document.getElementById('feedFilter').value.toLowerCase().trim();
+  return queries.filter(q=>{
+    if(typeFilter==='blocked' && !q.b) return false;
+    if(typeFilter==='allowed' &&  q.b) return false;
+    if(text && !q.d.toLowerCase().includes(text)) return false;
+    return true;
+  });
+}
+
 function renderFeed(newEntry){
   const tbody=document.getElementById('feedBody');
-  if(!queries.length){
-    tbody.innerHTML='<tr class="empty-row"><td colspan="5">Waiting for DNS queries…</td></tr>';
+  const filtered=getFiltered();
+  if(!filtered.length){
+    tbody.innerHTML='<tr class="empty-row"><td colspan="5">'+(queries.length?'No matches for current filter.':'Waiting for DNS queries…')+'</td></tr>';
     document.getElementById('feedCount').textContent='0 queries';
     return;
   }
-  const rows=queries.map((q,i)=>{
-    const blocked=q.b;
-    const status=blocked
+  const rows=filtered.map((q,i)=>{
+    const status=q.b
       ?`<span class="pill pill-blocked">● BLOCKED</span>`
       :`<span class="pill pill-allowed">○ ALLOWED</span>`;
-    return `<tr${i===0&&newEntry?' class="new-row"':''}>
+    const rowCls='row-'+(q.b?'blocked':'allowed')+(i===0&&newEntry?' new-row':'');
+    return `<tr class="${rowCls}">
       <td class="td-domain" title="${q.d}">${q.d}</td>
-      <td class="td-type" style="color:var(--accent2);">${q.ip||'--'}</td>
+      <td class="td-type" style="color:var(--accent2)">${q.ip||'—'}</td>
       <td class="td-type">${qtypeStr(q.t)}</td>
       <td>${status}</td>
-      <td class="td-time">${timeAgo(q.ts)}</td>
+      <td class="td-time">${timeAgo(q._ts||Date.now())}</td>
     </tr>`;
   }).join('');
   tbody.innerHTML=rows;
-  document.getElementById('feedCount').textContent=queries.length+' entries';
+  document.getElementById('feedCount').textContent=filtered.length+' entries';
 }
 
-// Update time-ago column every 5 seconds
-setInterval(()=>{ if(queries.length) renderFeed(false); }, 5000);
+// Refresh time-ago column every 5 s
+setInterval(()=>{ if(queries.length) renderFeed(false); },5000);
 
-// ─── Stats polling ────────────────────────────────────────────────────────────
+// ─── Stats polling ─────────────────────────────────────────────────────────────
 async function pollStats(){
   try{
     const r=await fetch('/api/stats');
     if(!r.ok) return;
     const s=await r.json();
+    lastStats=s;
+
     document.getElementById('myIp').textContent=s.ip;
     document.getElementById('sTotal').textContent=fmtNum(s.total);
     document.getElementById('sBlocked').textContent=fmtNum(s.blocked);
@@ -383,70 +596,117 @@ async function pollStats(){
     document.getElementById('sHeap').textContent=fmtBytes(s.heap);
     document.getElementById('sCache').textContent=fmtNum(s.cacheHits);
     document.getElementById('sHashes').textContent=fmtNum(s.hashes)+' hashes';
+    document.getElementById('sPending').textContent=s.pending||0;
 
-    if(s.ssid) {
-      const wBadge = document.getElementById('wifiBadge');
-      wBadge.style.display = 'block';
-      wBadge.textContent = s.ssid + ' (' + s.rssi + ' dBm ' + s.rssiTag + ')';
-      if(s.rssiTag==='Best' || s.rssiTag==='Good') wBadge.style.color='var(--green)';
-      else if(s.rssiTag==='Medium') wBadge.style.color='var(--yellow)';
-      else wBadge.style.color='var(--red)';
+    // RTT
+    if(s.avgRtt>0){
+      document.getElementById('sAvgRtt').textContent=s.avgRtt+'ms';
+      document.getElementById('sAvgRtt2').textContent=s.avgRtt;
+      document.getElementById('sMinRtt').textContent=s.minRtt;
+      document.getElementById('sMaxRtt').textContent=s.maxRtt;
+      document.getElementById('sRttRange').textContent=s.minRtt+'–'+s.maxRtt+' ms';
+      document.getElementById('sparkPanel').style.display='';
+      renderSparkline(s.rttHist);
+    }
+
+    // WiFi badge
+    if(s.ssid){
+      const wb=document.getElementById('wifiBadge');
+      wb.style.display='';
+      wb.textContent='📶 '+s.ssid+' ('+s.rssi+'dBm)';
+      wb.className='hdr-badge'+(s.rssiTag==='Bad'?' danger':s.rssiTag==='Medium'?' warn':'');
+    }
+
+    // Upstream DNS badge
+    const ub=document.getElementById('upstreamBadge');
+    if(s.upstream){
+      ub.style.display='';
+      ub.textContent='⬆ '+(s.usingFallback?'↩ ':'')+s.upstream;
+      ub.className='hdr-badge'+(s.usingFallback?' warn':'');
+      highlightDnsBtn(s.upstream);
     }
   }catch(_){}
 }
 setInterval(pollStats,2500);
 pollStats();
 
+// ─── RTT Sparkline (pure SVG) ────────────────────────────────────────────────
+function renderSparkline(hist){
+  if(!hist||hist.length<2) return;
+  const svg=document.getElementById('rttSpark');
+  const W=svg.clientWidth||600, H=56;
+  const maxV=Math.max(...hist,1);
+  const n=hist.length;
+  const pts=hist.map((v,i)=>{
+    const x=n===1?W/2:(i/(n-1))*W;
+    const y=H-4-(v/maxV)*(H-8);
+    return [x,y];
+  });
+  const pStr=pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ');
+  const aStr=`0,${H} `+pStr+` ${W},${H}`;
+  const uid=Math.random().toString(36).slice(2);
+  svg.innerHTML=`<defs>
+    <linearGradient id="sg${uid}" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <linearGradient id="ag${uid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <polygon points="${aStr}" fill="url(#ag${uid})"/>
+  <polyline points="${pStr}" fill="none" stroke="url(#sg${uid})" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  ${pts.map((p,i)=>i===pts.length-1?`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#22d3ee" opacity="0.9"/>`:'').join('')}`;
+}
+
 // ─── Load initial query log ───────────────────────────────────────────────────
 (async function loadQueries(){
   try{
     const r=await fetch('/api/queries');
     const data=await r.json();
-    queries=data.reverse();
+    queries=data.map(q=>{q._ts=Date.now();return q;}).reverse();
     renderFeed(false);
   }catch(_){}
 })();
 
-// ─── List management ──────────────────────────────────────────────────────────
-const modeDescs = {
-  0: "Bypass: All DNS filtering is disabled.",
-  1: "Minimal: Only blocking domains in your custom Blacklist.",
-  2: "Normal: Standard blocklist + custom lists.",
-  3: "Strict: Normal + Big Tech (Google, Apple, Microsoft, Amazon, etc).",
-  4: "Absolute: Default Deny. Blocks EVERYTHING except your Whitelist."
+// ─── Mode selector ────────────────────────────────────────────────────────────
+const modeDescs={
+  0:'Bypass: All DNS filtering is disabled.',
+  1:'Minimal: Only blocking domains in your custom Blacklist.',
+  2:'Normal: Standard blocklist + custom lists.',
+  3:'Strict: Normal + Big Tech (Google, Apple, Microsoft, Amazon, etc).',
+  4:'Absolute: Default Deny. Blocks EVERYTHING except your Whitelist.'
 };
 async function loadMode(){
-  try{
-    const r=await fetch('/api/mode');
-    if(!r.ok) return;
-    const d=await r.json();
-    updateModeUI(d.mode);
-  }catch(_){}
+  try{ const r=await fetch('/api/mode'); if(!r.ok) return; const d=await r.json(); updateModeUI(d.mode); }catch(_){}
 }
 function updateModeUI(m){
-  document.querySelectorAll('.mode-opt').forEach(b => {
-    b.className = 'mode-opt' + (b.dataset.m == m ? ' active active-'+m : '');
+  document.querySelectorAll('.mode-opt').forEach(b=>{
+    b.className='mode-opt'+(b.dataset.m==m?' active active-'+m:'');
   });
-  document.getElementById('modeDesc').textContent = modeDescs[m];
+  document.getElementById('modeDesc').textContent=modeDescs[m];
 }
 async function setMode(m){
   updateModeUI(m);
+  const shield=document.getElementById('shield');
+  shield.classList.add('pulse');
+  setTimeout(()=>shield.classList.remove('pulse'),400);
   try{
     const r=await fetch('/api/mode',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:m})});
     const d=await r.json();
     if(d.ok) toast('Shield Level updated',true);
-    else { toast('Failed',false); loadMode(); }
+    else{ toast('Failed',false); loadMode(); }
   }catch(_){ toast('Network error',false); loadMode(); }
 }
 loadMode();
 
+// ─── Lists ────────────────────────────────────────────────────────────────────
 async function loadLists(){
   try{
     const [wr,br]=await Promise.all([fetch('/api/whitelist'),fetch('/api/blacklist')]);
-    wlData=await wr.json();
-    blData=await br.json();
-    renderList('whitelist');
-    renderList('blacklist');
+    wlData=await wr.json(); blData=await br.json();
+    renderList('whitelist'); renderList('blacklist');
   }catch(_){}
 }
 loadLists();
@@ -455,17 +715,15 @@ function renderList(type){
   const data=type==='whitelist'?wlData:blData;
   const el=document.getElementById(type==='whitelist'?'wlList':'blList');
   if(!data.length){ el.innerHTML='<span class="empty-list">No entries yet.</span>'; return; }
-  el.innerHTML=data.map(d=>`
-    <div class="domain-chip">
-      ${d}
-      <button class="chip-del" title="Remove" onclick="removeEntry('${type}','${d}')">×</button>
-    </div>`).join('');
+  el.innerHTML=data.map(d=>`<div class="domain-chip">${d}
+    <button class="chip-del" title="Remove" onclick="removeEntry('${type}','${d}')">×</button>
+  </div>`).join('');
 }
 
 async function addEntry(type){
   const input=document.getElementById(type==='whitelist'?'wlInput':'blInput');
   const domain=input.value.trim().toLowerCase();
-  if(!domain||!domain.includes('.')){ toast('Enter a valid domain',''); return; }
+  if(!domain||!domain.includes('.')){ toast('Enter a valid domain',false); return; }
   try{
     const r=await fetch('/api/'+type,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain})});
     const d=await r.json();
@@ -483,6 +741,59 @@ async function removeEntry(type,domain){
   }catch(_){ toast('Network error',false); }
 }
 
+// ─── Clients tab ──────────────────────────────────────────────────────────────
+async function loadClients(){
+  try{
+    const r=await fetch('/api/clients');
+    const data=await r.json();
+    const tbody=document.getElementById('clientsBody');
+    if(!data.length){
+      tbody.innerHTML='<tr class="empty-row"><td colspan="4">No clients seen yet.</td></tr>'; return;
+    }
+    data.sort((a,b)=>b.total-a.total);
+    tbody.innerHTML=data.map(c=>`<tr>
+      <td class="td-domain" style="font-family:'Courier New',monospace">${c.ip}</td>
+      <td>${fmtNum(c.total)}</td>
+      <td style="color:var(--red)">${fmtNum(c.blocked)}</td>
+      <td><div class="pct-bar-wrap">
+        <div class="pct-bar-bg"><div class="pct-bar" style="width:${c.pct}%"></div></div>
+        <span class="pct-text">${c.pct}%</span>
+      </div></td>
+    </tr>`).join('');
+  }catch(_){}
+}
+
+// ─── Upstream DNS ─────────────────────────────────────────────────────────────
+function highlightDnsBtn(ip){
+  document.querySelectorAll('.dns-btn').forEach(b=>{
+    b.classList.toggle('active-dns',b.dataset.dns===ip);
+  });
+}
+
+async function setDns(ip,btn){
+  try{
+    const r=await fetch('/api/dns',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dns:ip})});
+    const d=await r.json();
+    if(d.ok){ toast('Upstream DNS set to '+ip,true); highlightDnsBtn(ip); document.getElementById('dnsMsg').textContent=''; }
+    else{ toast(d.msg||'Failed',false); }
+  }catch(_){ toast('Network error',false); }
+}
+
+async function setDnsCustom(){
+  const ip=document.getElementById('dnsCustom').value.trim();
+  if(!ip){ toast('Enter an IP address',false); return; }
+  await setDns(ip,null);
+}
+
+// Load current DNS on page open
+(async function loadDns(){
+  try{
+    const r=await fetch('/api/dns');
+    const d=await r.json();
+    if(d.dns) highlightDnsBtn(d.dns);
+  }catch(_){}
+})();
+
 // ─── OTA blocklist from URL ───────────────────────────────────────────────────
 let otaPoll=null;
 async function triggerOta(){
@@ -492,7 +803,7 @@ async function triggerOta(){
   document.getElementById('otaBarWrap').style.display='block';
   try{
     const r=await fetch('/api/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
-    if(!r.ok){ toast('Failed to start',false); return; }
+    if(!r.ok){ toast('Failed to start',false); document.getElementById('otaBtn').disabled=false; return; }
     toast('Download started…',true);
     otaPoll=setInterval(checkOtaStatus,1200);
   }catch(_){ toast('Network error',false); document.getElementById('otaBtn').disabled=false; }
@@ -513,7 +824,7 @@ async function checkOtaStatus(){
   }catch(_){}
 }
 
-// ─── Direct upload ────────────────────────────────────────────────────────────
+// ─── Direct upload ─────────────────────────────────────────────────────────────
 async function uploadBlocklist(){
   const file=document.getElementById('uploadFile').files[0];
   if(!file) return;
@@ -530,7 +841,18 @@ async function uploadBlocklist(){
   }catch(_){ msg.textContent='Network error'; toast('Network error',false); }
 }
 
-// Start WebSocket
+// ─── Reboot ───────────────────────────────────────────────────────────────────
+async function confirmReboot(){
+  if(!confirm('Reboot the ESP32? The dashboard will be offline for ~5 seconds.')) return;
+  document.getElementById('rebootMsg').textContent='Rebooting…';
+  try{
+    await fetch('/api/reboot',{method:'POST'});
+    toast('Rebooting…',true);
+    setTimeout(()=>document.getElementById('rebootMsg').textContent='',8000);
+  }catch(_){ toast('Reboot sent',true); }
+}
+
+// ─── Boot ─────────────────────────────────────────────────────────────────────
 connectWS();
 </script>
 </body>

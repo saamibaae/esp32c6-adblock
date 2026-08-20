@@ -2,59 +2,48 @@
 #include <Arduino.h>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// lru_cache.h  –  64-entry LRU cache keyed on 40-bit FNV-1a domain hash
+// lru_cache.h  –  256-entry direct-mapped cache keyed on 40-bit FNV-1a hash
 //
-// Each entry costs 14 bytes → total RAM: 64 × 14 = 896 bytes
-// A cache hit avoids all binary-search flash seeks for that domain.
+// O(1) lookup and insert: slot = hash % CACHE_SIZE (direct-mapped).
+// Collisions simply overwrite the existing slot (no chain, no probing).
+// With 256 slots and typical DNS traffic, collision eviction is negligible.
+//
+// Each entry costs 10 bytes → total RAM: 256 × 10 = 2 560 bytes
+// (was 64 × 14 = 896 bytes with O(64) scan — now 4× larger AND faster)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const int LRU_CACHE_SIZE = 64;
+static const int LRU_CACHE_SIZE = 256;
 
 struct CacheEntry {
-    uint64_t hash;
-    uint32_t lastUsed; // monotonic counter, not wall time
-    bool     blocked;
-    bool     valid;
+    uint64_t hash;    // 8 bytes — 40-bit FNV-1a domain hash
+    bool     blocked; // 1 byte
+    bool     valid;   // 1 byte
 };
 
-CacheEntry lruCache[LRU_CACHE_SIZE];
-uint32_t   lruCounter = 0;
+static CacheEntry lruCache[LRU_CACHE_SIZE];
 
+// Reset all cache entries
 void lruInit() {
     memset(lruCache, 0, sizeof(lruCache));
-    lruCounter = 0;
 }
 
-// Returns true + sets result if hash is cached.
+// O(1) lookup — returns true + sets 'result' if hash is cached
 bool lruLookup(uint64_t hash, bool &result) {
-    for (int i = 0; i < LRU_CACHE_SIZE; i++) {
-        if (lruCache[i].valid && lruCache[i].hash == hash) {
-            lruCache[i].lastUsed = ++lruCounter;
-            result = lruCache[i].blocked;
-            return true;
-        }
+    const int idx = (int)(hash % LRU_CACHE_SIZE);
+    if (lruCache[idx].valid && lruCache[idx].hash == hash) {
+        result = lruCache[idx].blocked;
+        return true;
     }
     return false;
 }
 
-// Insert or overwrite the LRU slot.
+// O(1) insert — overwrites slot (direct-mapped eviction)
 void lruInsert(uint64_t hash, bool blocked) {
-    int      slot    = 0;
-    uint32_t oldest  = UINT32_MAX;
-
-    for (int i = 0; i < LRU_CACHE_SIZE; i++) {
-        if (!lruCache[i].valid) { slot = i; goto insert; } // free slot
-        if (lruCache[i].lastUsed < oldest) {
-            oldest = lruCache[i].lastUsed;
-            slot   = i;
-        }
-    }
-    insert:
-    lruCache[slot] = { hash, ++lruCounter, blocked, true };
+    const int idx = (int)(hash % LRU_CACHE_SIZE);
+    lruCache[idx] = { hash, blocked, true };
 }
 
 // Wipe the cache (call after blocklist update or list change)
 void lruInvalidate() {
     memset(lruCache, 0, sizeof(lruCache));
-    lruCounter = 0;
 }

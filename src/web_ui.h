@@ -7,6 +7,7 @@
 
 #include "stats.h"
 #include "lru_cache.h"
+#include "per_client.h"
 #include "lists.h"
 #include "ota_updater.h"
 
@@ -14,35 +15,45 @@
 // web_ui.h  –  ESPAsyncWebServer (port 80) + WebSocket (/ws)
 //
 // REST API:
-//   GET  /api/stats        → JSON counters
-//   GET  /api/queries      → JSON last-30 query log
-//   GET  /api/mode         → {"mode":2}
-//   POST /api/mode         → {"mode":3} — update mode and invalidate cache
-//   GET  /api/whitelist    → JSON list
-//   POST /api/whitelist    → {"domain":"x"} — add
-//   DELETE /api/whitelist?domain=x — remove
-//   GET  /api/blacklist    → same
-//   POST /api/blacklist    → same
-//   DELETE /api/blacklist?domain=x — remove
-//   POST /api/update       → {"url":"http://..."} — trigger blocklist OTA
-//   POST /api/upload       → multipart file — direct blocklist.bin upload
-//   GET  /api/ota/status   → {"status":"...","progress":N,"msg":"..."}
+//   GET  /api/stats          → JSON counters + RTT + upstream info
+//   GET  /api/queries        → JSON last-50 query log
+//   GET  /api/mode           → {"mode":2}
+//   POST /api/mode           → {"mode":3}
+//   GET  /api/whitelist      → JSON list
+//   POST /api/whitelist      → {"domain":"x"}
+//   DELETE /api/whitelist?domain=x
+//   GET  /api/blacklist      → same pattern
+//   POST /api/blacklist      → same pattern
+//   DELETE /api/blacklist?domain=x
+//   GET  /api/clients        → [{"ip":"...","total":N,"blocked":N,"pct":N}]
+//   GET  /api/dns            → {"dns":"1.1.1.1","fallback":"8.8.8.8","usingFallback":false}
+//   POST /api/dns            → {"dns":"9.9.9.9"} — changes upstream DNS + persists to /dns.txt
+//   POST /api/update         → {"url":"http://..."} — trigger blocklist OTA
+//   POST /api/upload         → multipart file — direct blocklist.bin upload
+//   GET  /api/ota/status     → {"status":"...","progress":N,"msg":"..."}
+//   POST /api/reboot         → reboots the device
 //
 // WebSocket /ws pushes per-query JSON events to all connected clients:
-//   {"d":"domain","t":1,"b":true,"ts":12345}
+//   {"d":"domain","t":1,"b":true,"ip":"...","ts":12345}
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Resolved from main.cpp's translation unit
-extern File     blocklistFile;
-extern uint32_t totalHashes;
-extern bool     fsReady;
+// All types below are defined in main.cpp before this header is included.
+extern File       blocklistFile;
+extern uint32_t   totalHashes;
+extern bool       fsReady;
+extern IPAddress  UPSTREAM_DNS;
+extern IPAddress  UPSTREAM_DNS_FALLBACK;
+extern bool       g_usingFallback;
+// PendingQuery, pendingQueries[], MAX_PENDING, currentUpstream() are already in scope.
+
 
 static AsyncWebServer webServer(80);
 static AsyncWebSocket webSocket("/ws");
 
-// ── Helper: add CORS headers ─────────────────────────────────────────────────
+// ── Helper: CORS headers ──────────────────────────────────────────────────────
 static void _cors(AsyncWebServerResponse *resp) {
-    resp->addHeader("Access-Control-Allow-Origin", "*");
+    resp->addHeader("Access-Control-Allow-Origin",  "*");
     resp->addHeader("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS");
     resp->addHeader("Access-Control-Allow-Headers", "Content-Type");
 }
@@ -53,10 +64,7 @@ static void _sendJson(AsyncWebServerRequest *req, int code, const String &json) 
     req->send(r);
 }
 
-// ── Body-parse helper for small JSON bodies (< 512 B) ───────────────────────
-// Used with ESPAsyncWebServer's onBody callback. Assembles multi-chunk bodies
-// into a single null-terminated buffer using request's _tempObject slot.
-
+// ── Body-parse helper for small JSON bodies (< 512 B) ────────────────────────
 struct BodyAccum {
     uint8_t data[512];
     size_t  len = 0;
@@ -85,7 +93,7 @@ static ArBodyHandlerFunction _bodyHandler(
     };
 }
 
-// ── Broadcast a query event to all WebSocket clients ────────────────────────
+// ── Broadcast a query event to all WebSocket clients ─────────────────────────
 void broadcastQuery(const char *domain, uint16_t qtype, bool blocked, const char *clientIP) {
     if (webSocket.count() == 0) return;
     char buf[256];
@@ -96,7 +104,7 @@ void broadcastQuery(const char *domain, uint16_t qtype, bool blocked, const char
     webSocket.textAll(buf);
 }
 
-// ── Web server setup ─────────────────────────────────────────────────────────
+// ── Web server setup ──────────────────────────────────────────────────────────
 void webUiSetup() {
     // ── WebSocket ────────────────────────────────────────────────────────────
     webSocket.onEvent([](AsyncWebSocket *, AsyncWebSocketClient *client,
@@ -123,17 +131,44 @@ void webUiSetup() {
             req->send(503, "text/plain", "index.html missing — run uploadfs");
     });
 
-    // ── GET /api/stats ────────────────────────────────────────────────────────    //  GET /api/stats 
+    // ── GET /api/stats ────────────────────────────────────────────────────────
     webServer.on("/api/stats", HTTP_GET, [](AsyncWebServerRequest *req) {
-        char buf[512];
-        int8_t rssi = WiFi.RSSI();
-        const char* rssiTag = "Bad";
-        if (rssi >= -50) rssiTag = "Best";
-        else if (rssi >= -65) rssiTag = "Good";
-        else if (rssi >= -80) rssiTag = "Medium";
-        
+        // Build compact rttHist JSON array from the circular buffer
+        char rttHistBuf[256] = "[";
+        int  rttHistLen = 1;
+        const int cnt  = g_stats.rttHistCount;
+        const int head = g_stats.rttHistHead;
+        for (int i = 0; i < cnt; i++) {
+            int idx = (head - cnt + i + 30) % 30;
+            char tmp[8];
+            int w = snprintf(tmp, sizeof(tmp), "%s%u",
+                             i > 0 ? "," : "", g_stats.rttHistory[idx]);
+            if (rttHistLen + w < (int)sizeof(rttHistBuf) - 2) {
+                memcpy(rttHistBuf + rttHistLen, tmp, w);
+                rttHistLen += w;
+            }
+        }
+        rttHistBuf[rttHistLen++] = ']';
+        rttHistBuf[rttHistLen]   = '\0';
+
+        // Count active pending slots
+        int activePending = 0;
+        for (int i = 0; i < MAX_PENDING; i++)
+            if (pendingQueries[i].active) activePending++;
+
+        const int8_t      rssi    = WiFi.RSSI();
+        const char* const rssiTag = rssi >= -50 ? "Best"
+                                  : rssi >= -65 ? "Good"
+                                  : rssi >= -80 ? "Medium" : "Bad";
+
+        const uint32_t safeMin = (g_stats.minRtt == UINT32_MAX) ? 0 : g_stats.minRtt;
+
+        char buf[896];
         snprintf(buf, sizeof(buf),
-            R"({"total":%lu,"blocked":%lu,"pct":%lu,"uptime":%lu,"heap":%lu,"ip":"%s","hashes":%lu,"cacheHits":%lu,"ssid":"%s","rssi":%d,"rssiTag":"%s"})",
+            R"({"total":%lu,"blocked":%lu,"pct":%lu,"uptime":%lu,"heap":%lu,)"
+            R"("ip":"%s","hashes":%lu,"cacheHits":%lu,"ssid":"%s","rssi":%d,)"
+            R"("rssiTag":"%s","minRtt":%lu,"avgRtt":%lu,"maxRtt":%lu,)"
+            R"("rttHist":%s,"upstream":"%s","usingFallback":%s,"pending":%d})",
             (unsigned long)g_stats.totalQueries,
             (unsigned long)g_stats.blockedQueries,
             (unsigned long)g_stats.blockedPct(),
@@ -144,7 +179,14 @@ void webUiSetup() {
             (unsigned long)g_stats.cacheHits,
             WiFi.SSID().c_str(),
             rssi,
-            rssiTag);
+            rssiTag,
+            (unsigned long)safeMin,
+            (unsigned long)g_stats.avgRtt(),
+            (unsigned long)g_stats.maxRtt,
+            rttHistBuf,
+            currentUpstream().toString().c_str(),
+            g_usingFallback ? "true" : "false",
+            activePending);
         _sendJson(req, 200, buf);
     });
 
@@ -160,9 +202,9 @@ void webUiSetup() {
             char entryBuf[256];
             snprintf(entryBuf, sizeof(entryBuf),
                      R"({"d":"%s","t":%u,"b":%s,"ip":"%s","ts":%lu})",
-                     e.domain, e.qtype, e.blocked ? "true" : "false", e.clientIP, e.timestamp);
+                     e.domain, e.qtype, e.blocked ? "true" : "false",
+                     e.clientIP, e.timestamp);
             json += entryBuf;
-
             idx--;
             if (idx < 0) idx = QUERY_LOG_SIZE - 1;
         }
@@ -172,7 +214,7 @@ void webUiSetup() {
 
     // ── GET /api/mode ─────────────────────────────────────────────────────────
     webServer.on("/api/mode", HTTP_GET, [](AsyncWebServerRequest *req) {
-        char buf[64];
+        char buf[32];
         snprintf(buf, sizeof(buf), R"({"mode":%d})", (int)g_blockMode);
         _sendJson(req, 200, buf);
     });
@@ -190,7 +232,7 @@ void webUiSetup() {
             int newMode = doc["mode"].as<int>();
             if (newMode >= 0 && newMode <= 4) {
                 settingsSave(static_cast<BlockMode>(newMode));
-                lruInvalidate(); // wipe cache since rules changed
+                lruInvalidate();
                 _sendJson(req, 200, R"({"ok":true})");
             } else {
                 _sendJson(req, 400, R"({"ok":false,"msg":"Invalid mode"})");
@@ -207,7 +249,7 @@ void webUiSetup() {
         _sendJson(req, 200, json);
     });
 
-    // ── POST /api/whitelist  {"domain":"x"} ───────────────────────────────────
+    // ── POST /api/whitelist {"domain":"x"} ────────────────────────────────────
     webServer.on("/api/whitelist", HTTP_POST,
         [](AsyncWebServerRequest *) {},
         nullptr,
@@ -219,19 +261,20 @@ void webUiSetup() {
             }
             bool ok = addToWhitelist(doc["domain"].as<const char *>());
             lruInvalidate();
-            _sendJson(req, ok ? 200 : 409, ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Duplicate"})");
+            _sendJson(req, ok ? 200 : 409,
+                      ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Duplicate"})");
         })
     );
 
     // ── DELETE /api/whitelist?domain=x ────────────────────────────────────────
     webServer.on("/api/whitelist", HTTP_DELETE, [](AsyncWebServerRequest *req) {
         if (!req->hasParam("domain")) {
-            _sendJson(req, 400, R"({"ok":false,"msg":"Missing ?domain"})");
-            return;
+            _sendJson(req, 400, R"({"ok":false,"msg":"Missing ?domain"})"); return;
         }
         bool ok = removeFromWhitelist(req->getParam("domain")->value().c_str());
         if (ok) lruInvalidate();
-        _sendJson(req, ok ? 200 : 404, ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Not found"})");
+        _sendJson(req, ok ? 200 : 404,
+                  ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Not found"})");
     });
 
     // ── GET /api/blacklist ────────────────────────────────────────────────────
@@ -250,46 +293,100 @@ void webUiSetup() {
         _bodyHandler([](AsyncWebServerRequest *req, const uint8_t *data, size_t len) {
             JsonDocument doc;
             if (deserializeJson(doc, data, len) || !doc["domain"].is<const char *>()) {
-                _sendJson(req, 400, R"({"ok":false,"msg":"Bad JSON"})");
-                return;
+                _sendJson(req, 400, R"({"ok":false,"msg":"Bad JSON"})"); return;
             }
             bool ok = addToBlacklist(doc["domain"].as<const char *>());
             lruInvalidate();
-            _sendJson(req, ok ? 200 : 409, ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Duplicate"})");
+            _sendJson(req, ok ? 200 : 409,
+                      ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Duplicate"})");
         })
     );
 
     // ── DELETE /api/blacklist?domain=x ────────────────────────────────────────
     webServer.on("/api/blacklist", HTTP_DELETE, [](AsyncWebServerRequest *req) {
         if (!req->hasParam("domain")) {
-            _sendJson(req, 400, R"({"ok":false,"msg":"Missing ?domain"})");
-            return;
+            _sendJson(req, 400, R"({"ok":false,"msg":"Missing ?domain"})"); return;
         }
         bool ok = removeFromBlacklist(req->getParam("domain")->value().c_str());
         if (ok) lruInvalidate();
-        _sendJson(req, ok ? 200 : 404, ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Not found"})");
+        _sendJson(req, ok ? 200 : 404,
+                  ok ? R"({"ok":true})" : R"({"ok":false,"msg":"Not found"})");
     });
 
-    // ── POST /api/update  {"url":"http://..."} ────────────────────────────────
+    // ── GET /api/clients ──────────────────────────────────────────────────────
+    webServer.on("/api/clients", HTTP_GET, [](AsyncWebServerRequest *req) {
+        String json = "[";
+        bool first = true;
+        for (int i = 0; i < CLIENT_TABLE_SIZE; i++) {
+            if (g_clients[i].ip == 0) continue;
+            if (!first) json += ",";
+            char e[128];
+            const uint32_t pct = g_clients[i].total
+                ? (g_clients[i].blocked * 100UL / g_clients[i].total) : 0;
+            snprintf(e, sizeof(e),
+                R"({"ip":"%s","total":%lu,"blocked":%lu,"pct":%lu})",
+                g_clients[i].ipStr,
+                (unsigned long)g_clients[i].total,
+                (unsigned long)g_clients[i].blocked,
+                (unsigned long)pct);
+            json += e;
+            first = false;
+        }
+        json += "]";
+        _sendJson(req, 200, json);
+    });
+
+    // ── GET /api/dns ──────────────────────────────────────────────────────────
+    webServer.on("/api/dns", HTTP_GET, [](AsyncWebServerRequest *req) {
+        char buf[128];
+        snprintf(buf, sizeof(buf),
+            R"({"dns":"%s","fallback":"%s","usingFallback":%s})",
+            UPSTREAM_DNS.toString().c_str(),
+            UPSTREAM_DNS_FALLBACK.toString().c_str(),
+            g_usingFallback ? "true" : "false");
+        _sendJson(req, 200, buf);
+    });
+
+    // ── POST /api/dns {"dns":"9.9.9.9"} ──────────────────────────────────────
+    webServer.on("/api/dns", HTTP_POST,
+        [](AsyncWebServerRequest *) {},
+        nullptr,
+        _bodyHandler([](AsyncWebServerRequest *req, const uint8_t *data, size_t len) {
+            JsonDocument doc;
+            if (deserializeJson(doc, data, len) || !doc["dns"].is<const char *>()) {
+                _sendJson(req, 400, R"({"ok":false,"msg":"Bad JSON"})"); return;
+            }
+            IPAddress addr;
+            if (!addr.fromString(doc["dns"].as<const char *>())) {
+                _sendJson(req, 400, R"({"ok":false,"msg":"Invalid IP address"})"); return;
+            }
+            UPSTREAM_DNS = addr;
+            // Persist to LittleFS so it survives reboots
+            File f = LittleFS.open("/dns.txt", "w");
+            if (f) { f.println(addr.toString()); f.close(); }
+            Serial.printf("[DNS] Upstream DNS changed to %s\n", addr.toString().c_str());
+            _sendJson(req, 200, R"({"ok":true})");
+        })
+    );
+
+    // ── POST /api/update {"url":"http://..."} ─────────────────────────────────
     webServer.on("/api/update", HTTP_POST,
         [](AsyncWebServerRequest *) {},
         nullptr,
         _bodyHandler([](AsyncWebServerRequest *req, const uint8_t *data, size_t len) {
             if (getOtaStatus() == OtaStatus::RUNNING) {
-                _sendJson(req, 409, R"({"ok":false,"msg":"OTA already running"})");
-                return;
+                _sendJson(req, 409, R"({"ok":false,"msg":"OTA already running"})"); return;
             }
             JsonDocument doc;
             if (deserializeJson(doc, data, len) || !doc["url"].is<const char *>()) {
-                _sendJson(req, 400, R"({"ok":false,"msg":"Need {\"url\":\"...\"}"})");
-                return;
+                _sendJson(req, 400, R"({"ok":false,"msg":"Need {\"url\":\"...\"}"})"  ); return;
             }
             startBlocklistUpdate(doc["url"].as<String>());
             _sendJson(req, 202, R"({"ok":true,"msg":"Download started"})");
         })
     );
 
-    // ── POST /api/upload  (multipart blocklist.bin) ────────────────────────────
+    // ── POST /api/upload  (multipart blocklist.bin) ───────────────────────────
     webServer.on("/api/upload", HTTP_POST,
         [](AsyncWebServerRequest *req) {
             bool ok = fsReady;
@@ -317,13 +414,12 @@ void webUiSetup() {
                     blocklistFile = LittleFS.open("/blocklist.bin", "r");
                     if (blocklistFile) {
                         totalHashes = blocklistFile.size() / 5;
-                        fsReady = true;
+                        fsReady     = true;
                         lruInvalidate();
                         Serial.printf("[UPLOAD] Blocklist updated: %u hashes\n", totalHashes);
                         return;
                     }
                 }
-                // Validation failed — restore
                 LittleFS.remove("/blocklist.tmp");
                 blocklistFile = LittleFS.open("/blocklist.bin", "r");
                 if (blocklistFile) { totalHashes = blocklistFile.size() / 5; fsReady = true; }
@@ -347,6 +443,13 @@ void webUiSetup() {
         _sendJson(req, 200, buf);
     });
 
+    // ── POST /api/reboot ──────────────────────────────────────────────────────
+    webServer.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest *req) {
+        _sendJson(req, 200, R"({"ok":true,"msg":"Rebooting\u2026"})");
+        delay(300);
+        ESP.restart();
+    });
+
     // ── 404 fallback ──────────────────────────────────────────────────────────
     webServer.onNotFound([](AsyncWebServerRequest *req) {
         _sendJson(req, 404, R"({"error":"Not found"})");
@@ -356,7 +459,7 @@ void webUiSetup() {
     Serial.println("[WEB] Dashboard ready on port 80.");
 }
 
-// ── Call from loop() to clean up stale WebSocket clients ────────────────────
+// ── Call from loop() to clean up stale WebSocket clients ─────────────────────
 void webUiLoop() {
     webSocket.cleanupClients();
 }
