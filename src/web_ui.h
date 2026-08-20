@@ -530,6 +530,77 @@ void webUiSetup() {
         _sendJson(req, 200, buf);
     });
 
+    // ── GET /api/benchmark (Upstream DNS Latency Speed Battle) ────────────────
+    webServer.on("/api/benchmark", HTTP_GET, [](AsyncWebServerRequest *req) {
+        struct Provider {
+            const char *name;
+            const char *ipStr;
+        };
+        const Provider providers[] = {
+            {"Cloudflare", "1.1.1.1"},
+            {"Cloudflare Secondary", "1.0.0.1"},
+            {"Google", "8.8.8.8"},
+            {"Quad9", "9.9.9.9"},
+            {"AdGuard", "94.140.14.14"},
+            {"OpenDNS", "208.67.222.222"}
+        };
+        const size_t pCount = sizeof(providers) / sizeof(providers[0]);
+
+        static const uint8_t probePkt[] = {
+            0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x06, 'g', 'o', 'o', 'g', 'l', 'e',
+            0x03, 'c', 'o', 'm',
+            0x00,
+            0x00, 0x01, 0x00, 0x01
+        };
+
+        WiFiUDP benchUdp;
+        benchUdp.begin(0);
+
+        char json[512] = "[";
+        size_t offset = 1;
+
+        for (size_t i = 0; i < pCount; i++) {
+            IPAddress target;
+            target.fromString(providers[i].ipStr);
+
+            benchUdp.beginPacket(target, 53);
+            benchUdp.write(probePkt, sizeof(probePkt));
+            benchUdp.endPacket();
+
+            uint32_t t0 = millis();
+            int rtt = -1;
+            while (millis() - t0 < 600) {
+                int sz = benchUdp.parsePacket();
+                if (sz > 0) {
+                    rtt = (int)(millis() - t0);
+                    benchUdp.clear();
+                    break;
+                }
+                delay(2);
+            }
+
+            char item[96];
+            snprintf(item, sizeof(item),
+                     R"(%s{"name":"%s","ip":"%s","rtt":%d})",
+                     (i == 0 ? "" : ","),
+                     providers[i].name,
+                     providers[i].ipStr,
+                     rtt);
+            size_t itemLen = strlen(item);
+            if (offset + itemLen < sizeof(json) - 2) {
+                memcpy(json + offset, item, itemLen);
+                offset += itemLen;
+            }
+        }
+        benchUdp.stop();
+
+        json[offset++] = ']';
+        json[offset] = '\0';
+        _sendJson(req, 200, json);
+    });
+
     // ── POST /api/reboot ──────────────────────────────────────────────────────
     webServer.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest *req) {
         _sendJson(req, 200, R"({"ok":true,"msg":"Rebooting\u2026"})");

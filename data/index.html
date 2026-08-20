@@ -19,6 +19,10 @@
   --yellow:#fbbf24;--text:#e2e8f0;--muted:#64748b;--muted2:#94a3b8;
   --radius:12px;--gap:16px;
 }
+[data-theme="emerald"]{--accent:#34d399;--accent2:#059669}
+[data-theme="purple"]{--accent:#c084fc;--accent2:#ec4899}
+[data-theme="matrix"]{--accent:#22c55e;--accent2:#16a34a}
+
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,sans-serif;min-height:100vh;padding-bottom:70px}
 a{color:var(--accent);text-decoration:none}
@@ -33,7 +37,7 @@ header{
 }
 .logo{display:flex;align-items:center;gap:10px;font-size:1.15rem;font-weight:800;letter-spacing:-0.5px}
 .logo span{background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.hdr-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .hdr-badge{
   background:var(--card);border:1px solid var(--border);border-radius:8px;
   padding:4px 10px;font-size:.78rem;font-family:'Courier New',monospace;
@@ -148,7 +152,7 @@ header{
 .type-leg-item{display:flex;align-items:center;gap:5px;color:var(--muted2)}
 .type-leg-dot{width:7px;height:7px;border-radius:50%}
 
-/* ── RTT Sparkline ────────────────────────────────────────────────────── */
+/* ── RTT Sparkline & Latency Histogram ────────────────────────────────── */
 .spark-panel{
   background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
   padding:14px 18px;margin-bottom:20px;
@@ -159,6 +163,9 @@ header{
 .spark-label span{color:var(--text);font-weight:600}
 #rttSpark{width:100%;height:52px;display:block;overflow:visible}
 .spark-footer{display:flex;justify-content:space-between;font-size:.66rem;color:var(--muted);margin-top:4px}
+
+.rtt-hist-bars{display:flex;gap:4px;margin-top:10px;height:6px;border-radius:3px;overflow:hidden;background:var(--surface)}
+.rtt-hist-seg{height:100%;transition:width .3s}
 
 /* ── Panel ────────────────────────────────────────────────────────────── */
 .panel{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:20px}
@@ -277,7 +284,7 @@ tr:hover .row-actions{opacity:1}
 .chip-del:hover{color:var(--red)}
 .empty-list{color:var(--muted);font-size:.82rem;padding:8px 0}
 
-/* ── Clients table ────────────────────────────────────────────────────── */
+/* ── Clients table & Profile ──────────────────────────────────────────── */
 .clients-wrap{overflow-x:auto}
 .clients-wrap table tbody tr{cursor:pointer}
 .clients-wrap table tbody tr td:first-child{border-left:none;padding-left:14px}
@@ -289,7 +296,7 @@ tr:hover .row-actions{opacity:1}
 .client-alias-edit{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.73rem;margin-left:6px;transition:color .15s}
 .client-alias-edit:hover{color:var(--accent)}
 
-/* ── Maintenance ──────────────────────────────────────────────────────── */
+/* ── Maintenance & Benchmark ──────────────────────────────────────────── */
 .maint-section{margin-bottom:24px}
 .maint-section h3{font-size:.82rem;font-weight:700;margin-bottom:9px;color:var(--muted2);text-transform:uppercase;letter-spacing:.6px}
 .url-form{display:flex;gap:8px}
@@ -310,6 +317,13 @@ tr:hover .row-actions{opacity:1}
 .dns-btn{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--muted2);padding:6px 14px;font-size:.78rem;font-weight:600;cursor:pointer;transition:.2s;font-family:'Inter',sans-serif}
 .dns-btn:hover{border-color:var(--accent);color:var(--accent)}
 .dns-btn.active-dns{border-color:var(--accent);color:var(--accent);background:rgba(34,211,238,.08)}
+
+.bench-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:14px 18px;margin-top:12px;display:none;
+}
+.bench-grid{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.bench-row{display:flex;align-items:center;justify-content:space-between;font-size:.78rem}
 
 /* ── Tester Result Card ──────────────────────────────────────────────── */
 .tester-verdict{
@@ -377,6 +391,7 @@ tr:hover .row-actions{opacity:1}
 <header>
   <div class="logo">🛡 <span>DNS Sinkhole</span></div>
   <div class="hdr-right">
+    <button class="icon-btn" onclick="cycleTheme()" title="Switch Color Theme">🎨</button>
     <button class="icon-btn" id="audioToggle" onclick="toggleAudio()" title="Toggle Sound Feedback">🔇</button>
     <button class="icon-btn" onclick="toggleShortcutsModal()" title="Keyboard Shortcuts (?)">⌨️</button>
     <div class="hdr-badge" id="upstreamBadge" style="display:none">⬆ …</div>
@@ -501,7 +516,7 @@ tr:hover .row-actions{opacity:1}
     </div>
   </div>
 
-  <!-- RTT Sparkline -->
+  <!-- RTT Sparkline & Latency Distribution -->
   <div class="spark-panel" id="sparkPanel" style="display:none">
     <div class="spark-header">
       <span class="spark-title">⚡ Upstream DNS Latency</span>
@@ -515,6 +530,11 @@ tr:hover .row-actions{opacity:1}
     <div class="spark-footer">
       <span>← older</span>
       <span>latest →</span>
+    </div>
+    <div class="rtt-hist-bars" title="Latency Distribution (<10ms / 10-30ms / 30-60ms / >60ms)">
+      <div class="rtt-hist-seg" id="segRttFast" style="width:70%;background:var(--accent)"></div>
+      <div class="rtt-hist-seg" id="segRttMed" style="width:20%;background:var(--green)"></div>
+      <div class="rtt-hist-seg" id="segRttSlow" style="width:10%;background:var(--yellow)"></div>
     </div>
   </div>
 
@@ -623,6 +643,29 @@ tr:hover .row-actions{opacity:1}
         <div class="tester-verdict" id="testerVerdict"></div>
       </div>
 
+      <!-- Upstream DNS Speed Battle Benchmark -->
+      <div class="maint-section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:9px">
+          <h3>🌐 Upstream DNS & Speed Battle</h3>
+          <button class="btn btn-sm" id="btnBenchmark" onclick="runUpstreamBenchmark()">⚡ Benchmark Upstreams</button>
+        </div>
+        <div class="dns-presets" id="dnsPresets">
+          <button class="dns-btn" data-dns="1.1.1.1" onclick="setDns('1.1.1.1',this)">☁ Cloudflare 1.1.1.1</button>
+          <button class="dns-btn" data-dns="1.0.0.1" onclick="setDns('1.0.0.1',this)">☁ Cloudflare 1.0.0.1</button>
+          <button class="dns-btn" data-dns="8.8.8.8" onclick="setDns('8.8.8.8',this)">🔍 Google 8.8.8.8</button>
+          <button class="dns-btn" data-dns="9.9.9.9" onclick="setDns('9.9.9.9',this)">🛡 Quad9 9.9.9.9</button>
+        </div>
+        <div class="url-form">
+          <input id="dnsCustom" type="text" placeholder="Custom IP e.g. 94.140.14.14">
+          <button class="btn btn-sm" onclick="setDnsCustom()">Set</button>
+        </div>
+        <div class="bench-card" id="benchCard">
+          <div style="font-weight:700;font-size:.84rem;margin-bottom:8px">⚡ Provider Latency Benchmark Results</div>
+          <div class="bench-grid" id="benchGrid"></div>
+        </div>
+        <div class="ota-msg" id="dnsMsg"></div>
+      </div>
+
       <!-- Flash & Partition Inspector -->
       <div class="maint-section">
         <h3>💾 LittleFS Flash Storage Inspector</h3>
@@ -635,22 +678,6 @@ tr:hover .row-actions{opacity:1}
             <div id="fsBar" style="background:linear-gradient(90deg,var(--accent),var(--accent2));height:100%;width:0%;transition:width .4s"></div>
           </div>
         </div>
-      </div>
-
-      <!-- Upstream DNS -->
-      <div class="maint-section">
-        <h3>🌐 Upstream DNS Server</h3>
-        <div class="dns-presets" id="dnsPresets">
-          <button class="dns-btn" data-dns="1.1.1.1" onclick="setDns('1.1.1.1',this)">☁ Cloudflare 1.1.1.1</button>
-          <button class="dns-btn" data-dns="1.0.0.1" onclick="setDns('1.0.0.1',this)">☁ Cloudflare 1.0.0.1</button>
-          <button class="dns-btn" data-dns="8.8.8.8" onclick="setDns('8.8.8.8',this)">🔍 Google 8.8.8.8</button>
-          <button class="dns-btn" data-dns="9.9.9.9" onclick="setDns('9.9.9.9',this)">🛡 Quad9 9.9.9.9</button>
-        </div>
-        <div class="url-form">
-          <input id="dnsCustom" type="text" placeholder="Custom IP e.g. 94.140.14.14">
-          <button class="btn btn-sm" onclick="setDnsCustom()">Set</button>
-        </div>
-        <div class="ota-msg" id="dnsMsg"></div>
       </div>
 
       <div class="maint-section">
@@ -740,6 +767,25 @@ tr:hover .row-actions{opacity:1}
 <div class="toast" id="toast"></div>
 
 <script>
+// ─── Theme Switcher ──────────────────────────────────────────────────────────
+const themes = ['cyan', 'emerald', 'purple', 'matrix'];
+let currentThemeIdx = 0;
+try {
+  const savedTheme = localStorage.getItem('c6_theme') || 'cyan';
+  currentThemeIdx = themes.indexOf(savedTheme);
+  if (currentThemeIdx < 0) currentThemeIdx = 0;
+  if (savedTheme !== 'cyan') document.documentElement.setAttribute('data-theme', savedTheme);
+} catch(_) {}
+
+function cycleTheme() {
+  currentThemeIdx = (currentThemeIdx + 1) % themes.length;
+  const theme = themes[currentThemeIdx];
+  if (theme === 'cyan') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('c6_theme', theme);
+  toast(`Theme: ${theme.toUpperCase()}`, true);
+}
+
 // ─── Web Audio API Sound Synthesizer ─────────────────────────────────────────
 let audioEnabled = localStorage.getItem('c6_audio') === '1';
 let audioCtx = null;
@@ -1297,6 +1343,48 @@ async function importListsPrompt() {
   }
 }
 
+// ─── Upstream DNS Latency Speed Battle Benchmark ─────────────────────────────
+async function runUpstreamBenchmark() {
+  const btn = document.getElementById('btnBenchmark');
+  const card = document.getElementById('benchCard');
+  const grid = document.getElementById('benchGrid');
+
+  btn.disabled = true;
+  btn.textContent = '⚡ Testing…';
+  card.style.display = 'block';
+  grid.innerHTML = '<div style="color:var(--muted);font-size:.78rem">Querying all upstream DNS providers from ESP32…</div>';
+
+  try {
+    const r = await fetch('/api/benchmark');
+    const data = await r.json();
+    btn.disabled = false;
+    btn.textContent = '⚡ Benchmark Upstreams';
+
+    const valid = data.filter(p => p.rtt > 0);
+    const minRtt = valid.length ? Math.min(...valid.map(p => p.rtt)) : 999;
+
+    grid.innerHTML = data.map(p => {
+      const isFastest = p.rtt === minRtt && p.rtt > 0;
+      const rttText = p.rtt > 0 ? `${p.rtt} ms` : 'Timeout';
+      const badge = isFastest
+        ? `<span class="pill pill-allowed" style="font-size:.65rem">⚡ FASTEST</span>`
+        : '';
+      const setBtn = `<button class="btn-act" onclick="setDns('${p.ip}',null)">Set</button>`;
+      return `<div class="bench-row">
+        <span><strong>${p.name}</strong> <code style="color:var(--muted2);font-size:.72rem">(${p.ip})</code> ${badge}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-family:monospace;font-weight:700;color:${p.rtt>0?(p.rtt<20?'var(--green)':'var(--yellow)'):'var(--red)'}">${rttText}</span>
+          ${setBtn}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(_) {
+    btn.disabled = false;
+    btn.textContent = '⚡ Benchmark Upstreams';
+    grid.innerHTML = '<div style="color:var(--red);font-size:.78rem">Benchmark query failed.</div>';
+  }
+}
+
 // ─── QPS Calculation Loop ─────────────────────────────────────────────────────
 setInterval(() => {
   const now = Date.now();
@@ -1381,17 +1469,17 @@ function renderSparkline(hist){
   const uid=Math.random().toString(36).slice(2);
   svg.innerHTML=`<defs>
     <linearGradient id="sg${uid}" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#818cf8"/>
-      <stop offset="100%" stop-color="#22d3ee"/>
+      <stop offset="0%" stop-color="var(--accent2)"/>
+      <stop offset="100%" stop-color="var(--accent)"/>
     </linearGradient>
     <linearGradient id="ag${uid}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.25"/>
-      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+      <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
     </linearGradient>
   </defs>
   <polygon points="${aStr}" fill="url(#ag${uid})"/>
   <polyline points="${pStr}" fill="none" stroke="url(#sg${uid})" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-  ${pts.map((p,i)=>i===pts.length-1?`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="#22d3ee" opacity="0.9"/>`:'').join('')}`;
+  ${pts.map((p,i)=>i===pts.length-1?`<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3.5" fill="var(--accent)" opacity="0.9"/>`:'').join('')}`;
 }
 
 // ─── Load initial query log ───────────────────────────────────────────────────
